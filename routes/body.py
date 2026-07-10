@@ -183,7 +183,7 @@ async def body_page(
         period_weight_change=period_weight_change,
         period_bf_change=period_bf_change,
         height_cm=height_cm,
-        records_data=_build_table_data(records, changes),
+        records_data=_build_table_data(records, changes, ah_dates),
         ah_source=ah_source,
         ah_dates=ah_dates,
     ))
@@ -201,7 +201,7 @@ async def update_body_settings(data: dict):
 
 
 
-def _build_table_data(records: list[dict], changes: dict[str, float]) -> list[dict]:
+def _build_table_data(records: list[dict], changes: dict[str, float], ah_dates: set = None) -> list[dict]:
     """Merge weight and bodyfat records by date into table rows (newest first)."""
     by_date: dict[str, dict] = {}
     for rec in records:
@@ -226,5 +226,9 @@ def _build_table_data(records: list[dict], changes: dict[str, float]) -> list[di
             src = rec.get("source", "")
             if src == "apple_health":
                 by_date[d]["source"] = "🍎"
+        # Mark Apple Health source for dates with any AH data
+    for d in by_date:
+        if ah_dates and d in ah_dates and "source" not in by_date[d]:
+            by_date[d]["source"] = "🍎"
     rows = sorted(by_date.values(), key=lambda x: x["date"], reverse=True)
     return rows
