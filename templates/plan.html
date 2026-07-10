@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}训练规划 - 训记分析{% endblock %}
+{% block content %}
+<h1>训练规划</h1>
+<div class="card">
+    <div class="card-title">基于最近 {{ days }} 天的训练分析</div>
+    <p>训练天数: {{ summary.total_days }} | 总组数: {{ summary.total_sets }} | 总容量: {{ "%.0f"|format(summary.total_volume) }} kg</p>
+    <p style="margin-top:8px;font-weight:500;">{{ plan.suggested_focus }}</p>
+</div>
+{% if plan.suggested_movements %}
+<div class="card">
+    <div class="card-title">建议包含的动作</div>
+    <ul style="padding-left:20px;">
+    {% for m in plan.suggested_movements %}
+        <li style="margin:4px 0;">{{ m }}</li>
+    {% endfor %}
+    </ul>
+</div>
+{% endif %}
+{% endblock %}

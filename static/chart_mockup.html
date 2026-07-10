@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>图表方案对比</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+body{font-family:-apple-system,sans-serif;background:#f5f5f5;color:#333;padding:24px;max-width:960px;margin:auto}
+h1{font-size:20px;margin-bottom:20px}
+.card{background:#fff;border-radius:8px;padding:20px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card-title{font-size:13px;font-weight:600;color:#888;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px}
+.chart-container{height:280px;width:100%}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;padding:8px 12px;color:#888;border-bottom:2px solid #eee;font-weight:600}
+td{padding:8px 12px;border-bottom:1px solid #f5f5f5}
+td:last-child{text-align:right}
+</style>
+</head>
+<body>
+<h1>四种方案对比</h1>
+
+<!-- A. Radar Chart -->
+<div class="card">
+<div class="card-title">A · 雷达图 — 多维度对比</div>
+<div class="chart-container"><canvas id="radarChart"></canvas></div>
+</div>
+
+<!-- B. Stacked Bar -->
+<div class="card">
+<div class="card-title">B · 堆叠柱状图 — 各维度组合</div>
+<div class="chart-container"><canvas id="stackedChart"></canvas></div>
+</div>
+
+<!-- C. Bubble Chart -->
+<div class="card">
+<div class="card-title">C · 气泡图 — X次数 Y时长 大小=热量</div>
+<div class="chart-container"><canvas id="bubbleChart"></canvas></div>
+</div>
+
+<!-- D. Table -->
+<div class="card">
+<div class="card-title">D · 数据表格</div>
+<table>
+<thead><tr><th>训练类型</th><th>次数</th><th>总时长 (小时)</th><th>总热量 (kcal)</th><th>平均心率</th></tr></thead>
+<tbody>
+<tr><td>🚶 步行</td><td>3</td><td>2.1</td><td>598</td><td>118</td></tr>
+<tr><td>🏋️ 传统力量训练</td><td>2</td><td>1.3</td><td>550</td><td>126</td></tr>
+<tr><td>🥾 远足</td><td>1</td><td>1.0</td><td>337</td><td>134</td></tr>
+</tbody></table>
+</div>
+
+<script>
+// ── Radar ──
+new Chart(document.getElementById('radarChart'), {
+    type: 'radar',
+    data: {
+        labels: ['训练次数', '总时长 (h)', '总热量 (kcal)', '平均心率 (bpm)'],
+        datasets: [
+            { label: '步行', data: [3, 2.1, 598, 118], borderColor: '#2196f3', backgroundColor: '#2196f322', pointRadius: 4 },
+            { label: '传统力量训练', data: [2, 1.3, 550, 126], borderColor: '#e53935', backgroundColor: '#e5393522', pointRadius: 4 },
+            { label: '远足', data: [1, 1.0, 337, 134], borderColor: '#4caf50', backgroundColor: '#4caf5022', pointRadius: 4 },
+        ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { r: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+});
+
+// ── Stacked Bar ──
+new Chart(document.getElementById('stackedChart'), {
+    type: 'bar',
+    data: {
+        labels: ['步行', '传统力量训练', '远足'],
+        datasets: [
+            { label: '次数', data: [3, 2, 1], backgroundColor: '#2196f3' },
+            { label: '时长 (h)', data: [2.1, 1.3, 1.0], backgroundColor: '#e53935' },
+            { label: '热量 (kcal/100)', data: [5.98, 5.5, 3.37], backgroundColor: '#4caf50' },
+        ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+});
+
+// ── Bubble ──
+new Chart(document.getElementById('bubbleChart'), {
+    type: 'bubble',
+    data: {
+        datasets: [
+            { label: '步行', data: [{ x: 3, y: 2.1, r: 30 }], backgroundColor: '#2196f388' },
+            { label: '传统力量训练', data: [{ x: 2, y: 1.3, r: 28 }], backgroundColor: '#e5393588' },
+            { label: '远足', data: [{ x: 1, y: 1.0, r: 20 }], backgroundColor: '#4caf5088' },
+        ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { title: { display: true, text: '训练次数' }, beginAtZero: true }, y: { title: { display: true, text: '总时长 (小时)' }, beginAtZero: true } } }
+});
+</script>
+</body>
+</html>

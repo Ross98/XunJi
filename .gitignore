@@ -1,0 +1,8 @@
+.env
+body_config.json
+__pycache__/
+*.pyc
+.cache/
+.pytest_cache/
+.DS_Store
+xunji_cache.sqlite

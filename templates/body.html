@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block title %}身体数据 - 训记分析<script>
+function toggleHeightEdit() {
+    var el = document.getElementById('heightEdit');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+function saveHeight() {
+    var h = document.getElementById('heightInput').value;
+    fetch('/body/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({height_cm: parseInt(h)})
+    }).then(function() { location.reload(); });
+}
+function cancelHeightEdit() {
+    document.getElementById('heightEdit').style.display = 'none';
+}
+</script>
+
+{% endblock %}
+{% block content %}
+<h1>身体数据</h1>
+
+<!-- Range selector -->
+<div style="margin-bottom:16px;">
+    <a href="/body?range=30" class="btn-range{% if range_selected == '30' %} active{% endif %}">1个月</a>
+    <a href="/body?range=90" class="btn-range{% if range_selected == '90' %} active{% endif %}">3个月</a>
+    <a href="/body?range=180" class="btn-range{% if range_selected == '180' %} active{% endif %}">半年</a>
+    <a href="/body?range=all" class="btn-range{% if range_selected == 'all' %} active{% endif %}">全部</a>
+</div>
+
+<!-- 4 stat cards -->
+<div class="grid-4">
+    <div class="card">
+        <div class="stat">
+            <div class="stat-value">{{ latest.get("weight",{}).get("value","--") }}</div>
+            <div class="stat-label">最新体重 (kg)</div>
+            {% if latest_weight_change is not none and latest.get("weight") %}
+            <div class="{% if latest_weight_change > 0 %}change-up{% elif latest_weight_change < 0 %}change-down{% else %}change-zero{% endif %}" style="font-size:12px;margin-top:2px;">
+                <span class="change-arrow">{% if latest_weight_change > 0 %}↑{% elif latest_weight_change < 0 %}↓{% endif %}</span>
+                {{ "%.2f"|format(latest_weight_change|abs) if latest_weight_change else "0.00" }} kg (较上次)
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="stat-value">{{ latest.get("bodyfat",{}).get("value","--") }}</div>
+            <div class="stat-label">最新体脂率 (%)</div>
+            {% if latest_bf_change is not none and latest.get("bodyfat") %}
+            <div class="{% if latest_bf_change > 0 %}change-up{% elif latest_bf_change < 0 %}change-down{% else %}change-zero{% endif %}" style="font-size:12px;margin-top:2px;">
+                <span class="change-arrow">{% if latest_bf_change > 0 %}↑{% elif latest_bf_change < 0 %}↓{% endif %}</span>
+                {{ "%.2f"|format(latest_bf_change|abs) if latest_bf_change else "0.00" }}% (较上次)
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="stat-value">{{ bmi if bmi is not none else "--" }}</div>
+            <div class="stat-label">BMI <span onclick="toggleHeightEdit()" style="cursor:pointer;font-size:18px;color:#1a1a2e;margin-left:6px;font-weight:bold;">✏</span></div>
+            {% if bmi is not none %}
+            <div style="font-size:11px;color:#888;margin-top:2px;">
+                {% if bmi < 18.5 %}偏瘦{% elif bmi < 24 %}正常{% elif bmi < 28 %}偏胖{% else %}肥胖{% endif %}
+            </div>
+            {% endif %}
+            <div id="heightEdit" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid #eee;">
+                <span style="font-size:12px;color:#888;">身高</span>
+                <input type="number" id="heightInput" value="{{ height_cm }}" min="100" max="250" style="width:65px;margin:0 4px;padding:4px 6px;font-size:13px;border:1px solid #ddd;border-radius:4px;">
+                <span style="font-size:12px;color:#888;margin-right:6px;">cm</span>
+                <button onclick="saveHeight()" class="btn btn-primary" style="padding:4px 10px;font-size:12px;">保存</button>
+                <button onclick="cancelHeightEdit()" style="padding:4px 10px;font-size:12px;border:1px solid #ddd;border-radius:4px;background:#fff;cursor:pointer;">取消</button>
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            {% if period_weight_change is not none %}
+            <div class="stat-value {% if period_weight_change < 0 %}change-down{% elif period_weight_change > 0 %}change-up{% endif %}">
+                {{ "%.1f"|format(period_weight_change) }} kg
+            </div>
+            {% else %}
+            <div class="stat-value">--</div>
+            {% endif %}
+            <div class="stat-label">期间体重变化</div>
+            {% if period_bf_change is not none %}
+            <div style="font-size:11px;color:#888;margin-top:2px;">
+                体脂 {{ "%.1f"|format(period_bf_change) }}%
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Dual-axis chart -->
+<div class="card">
+    <div class="card-title">体重 & 体脂率趋势</div>
+    <div class="chart-large"><canvas id="dualChart"></canvas></div>
+</div>
+
+<!-- Stats 2 column -->
+<div class="stats-2col">
+    <div class="stats-half">
+        <div class="stats-half-title">体重统计 (kg)</div>
+        <div class="stats-row"><span class="label">最高</span><span class="value">{{ stats.weight.max|default("--") }}</span></div>
+        <div class="stats-row"><span class="label">最低</span><span class="value">{{ stats.weight.min|default("--") }}</span></div>
+        <div class="stats-row"><span class="label">平均</span><span class="value">{{ stats.weight.avg|default("--") }}</span></div>
+    </div>
+    <div class="stats-half">
+        <div class="stats-half-title">体脂率统计 (%)</div>
+        <div class="stats-row"><span class="label">最高</span><span class="value">{{ stats.bodyfat.max|default("--") }}</span></div>
+        <div class="stats-row"><span class="label">最低</span><span class="value">{{ stats.bodyfat.min|default("--") }}</span></div>
+        <div class="stats-row"><span class="label">平均</span><span class="value">{{ stats.bodyfat.avg|default("--") }}</span></div>
+    </div>
+</div>
+
+<!-- Data table -->
+<div class="card">
+    <div class="card-title">历史记录</div>
+    <div class="data-table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>体重 (kg)</th>
+                    <th>体脂率 (%)</th>
+                    <th>BMI</th>
+                    <th>体重变化</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in records_data[:5] %}
+                <tr>
+                    <td>{{ row.date[5:] }}</td>
+                    <td>{{ row.get("weight","--") }}</td>
+                    <td>{{ row.get("bodyfat","--") }}</td>
+                    <td>{{ row.get("bmi","--") }}</td>
+                    <td>
+                        {% set wc = row.get("weight_change") %}
+                        {% if wc is not none and wc != 0 %}
+                        <span class="{% if wc > 0 %}change-up{% else %}change-down{% endif %}">
+                            <span class="change-arrow">{% if wc > 0 %}↑{% else %}↓{% endif %}</span>
+                            {{ "%.2f"|format(wc|abs) }}
+                        </span>
+                        {% else %}
+                        <span class="change-zero">--</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+const wData = {{ weight_trend | tojson | safe }};
+const bData = {{ bodyfat_trend | tojson | safe }};
+
+// Merge by date: average duplicate-day values
+function avgByDate(arr) {
+    const map = {};
+    arr.forEach(d => {
+        if (!map[d.date]) map[d.date] = { sum: 0, count: 0 };
+        map[d.date].sum += d.value;
+        map[d.date].count += 1;
+    });
+    return Object.entries(map)
+        .sort((a,b) => a[0].localeCompare(b[0]))
+        .map(([date, v]) => ({ date, value: v.sum / v.count }));
+}
+
+const weightAvg = avgByDate(wData);
+const bfAvg = avgByDate(bData);
+const labels = [...new Set([...weightAvg.map(d=>d.date), ...bfAvg.map(d=>d.date)])].sort();
+
+const wMap = Object.fromEntries(weightAvg.map(d => [d.date, d.value]));
+const bMap = Object.fromEntries(bfAvg.map(d => [d.date, d.value]));
+
+const wValues = labels.map(d => wMap[d] ?? null);
+const bValues = labels.map(d => bMap[d] ?? null);
+
+new Chart(document.getElementById('dualChart'), {
+    type: 'line',
+    data: {
+        labels,
+        datasets: [
+            {
+                label: '体重 (kg)',
+                data: wValues,
+                borderColor: '#1a1a2e',
+                backgroundColor: 'rgba(26,26,46,0.08)',
+                tension: 0.3,
+                fill: false,
+                yAxisID: 'y',
+                spanGaps: true,
+                pointRadius: 3,
+            },
+            {
+                label: '体脂率 (%)',
+                data: bValues,
+                borderColor: '#e53935',
+                backgroundColor: 'rgba(229,57,53,0.08)',
+                tension: 0.3,
+                fill: false,
+                yAxisID: 'y1',
+                spanGaps: true,
+                pointRadius: 3,
+                borderDash: [5, 3],
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+            legend: { position: 'top' },
+            tooltip: {
+                callbacks: {
+                    label: function(ctx) {
+                        if (ctx.parsed.y === null) return null;
+                        return ctx.dataset.label + ': ' + ctx.parsed.y;
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                beginAtZero: false,
+                title: { display: true, text: '体重 (kg)' },
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                beginAtZero: false,
+                title: { display: true, text: '体脂率 (%)' },
+                grid: { drawOnChartArea: false },
+            }
+        }
+    }
+});
+</script>
+<script>
+function toggleHeightEdit() {
+    var el = document.getElementById('heightEdit');
+    if (!el) return;
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+function saveHeight() {
+    var h = document.getElementById('heightInput').value;
+    fetch('/body/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({height_cm: parseInt(h)})
+    }).then(function() { location.reload(); });
+}
+function cancelHeightEdit() {
+    document.getElementById('heightEdit').style.display = 'none';
+}
+</script>
+{% endblock %}

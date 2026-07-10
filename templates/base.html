@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}训记分析{% endblock %}</title>
+<link rel="stylesheet" href="/static/css/app.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body>
+<nav class="nav">
+    <a href="/" class="nav-brand">训记分析</a>
+    <div class="nav-links">
+        <a href="/training" class="nav-link">训练</a>
+        <a href="/body" class="nav-link">身体</a>
+        <a href="/plan" class="nav-link">规划</a>
+        <a href="/diet" class="nav-link">饮食</a>
+    </div>
+</nav>
+<main class="main">
+    {% block content %}{% endblock %}
+</main>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

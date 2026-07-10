@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}总览 - 训记分析{% endblock %}
+{% block content %}
+<h1>总览仪表盘</h1>
+<div class="grid-3">
+    <div class="card">
+        <div class="stat">
+            <div class="stat-value">{{ summary.total_days if summary.total_days > 0 else "--" }}</div>
+            <div class="stat-label">今日训练数</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="stat-value">{{ "%.0f"|format(today_calories) if today_calories else "--" }}</div>
+            <div class="stat-label">今日热量 (kcal)</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="stat-value">{{ latest_weight }}</div>
+            <div class="stat-label">最新体重 (kg)</div>
+        </div>
+    </div>
+</div>
+{% if weight_trend %}
+<div class="card">
+    <div class="card-title">体重趋势（最近90天）</div>
+    <div class="chart-container"><canvas id="weightChart"></canvas></div>
+</div>
+<script>
+const wData = {{ weight_trend | tojson | safe }};
+if (wData.length > 0) {
+    new Chart(document.getElementById('weightChart'), {
+        type: 'line',
+        data: {
+            labels: wData.map(d => d.date),
+            datasets: [{
+                label: '体重 (kg)',
+                data: wData.map(d => d.value),
+                borderColor: '#1a1a2e',
+                tension: 0.3,
+                fill: false,
+                pointRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: false } }
+        }
+    });
+}
+</script>
+{% endif %}
+{% endblock %}

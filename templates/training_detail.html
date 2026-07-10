@@ -1,0 +1,60 @@
+<div class="detail-header">{{ date_str }}</div>
+{% if summary.total_days > 0 %}
+<div class="detail-summary">
+    <div class="grid-3" style="margin-bottom:12px;">
+        <div class="stat"><div class="stat-value">{{ summary.total_days }}</div><div class="stat-label">训练数</div></div>
+        <div class="stat"><div class="stat-value">{{ summary.total_sets }}</div><div class="stat-label">总组数</div></div>
+        <div class="stat"><div class="stat-value">{{ "%.0f"|format(summary.total_volume) }}</div><div class="stat-label">总容量 (kg)</div></div>
+    </div>
+    {% for train in trains %}
+    <div style="margin-bottom:12px;padding:10px;background:#f9f9f9;border-radius:6px;">
+        <strong>{{ train.title or "无标题" }}</strong>
+        {% if train.get("_cardio_metrics", {}).get("calories") %}
+        <div style="color:#888;font-size:12px;margin-top:4px;">
+            {% set cm = train._cardio_metrics %}
+            {{ "%.0f"|format(cm.total_duration_min|float if cm.total_duration_min else 0) }}分钟 ·
+            {% if cm.calories %}{{ "%.0f"|format(cm.calories|float) }}kcal{% endif %}
+            {% if cm.avgHeartRate %} · 心率 {{ "%.0f"|format(cm.avgHeartRate|float) }}-{{ "%.0f"|format(cm.maxHeartRate|float) }}bpm{% endif %}
+        </div>
+        {% endif %}
+        {% if train.note and train.note.text %}<span style="color:#666;font-size:12px;margin-left:6px;">{{ train.note.text }}</span>{% endif %}
+        {% for mov in train.movements %}
+        <div style="margin:6px 0 0 8px;font-size:13px;">
+            <span style="font-weight:500;">{{ mov.name }}</span>
+            {% if mov.difficulty %}<span style="color:#888;font-size:11px;">({{ mov.difficulty }})</span>{% endif %}
+            <div style="color:#555;font-size:12px;margin-left:10px;">
+            {% if mov.get("exetype", "") == "cardio" and mov.sets and mov.sets[0].calories %}
+                {% set cs = mov.sets[0] %}
+                {% set mins = (cs.time|int / 60)|round %}
+                <span>{{ mins }}分钟</span>
+                {% if cs.distance and cs.distance != "0" and cs.distance != "0.00" %}
+                <span> · {{ cs.distance }}km</span>
+                {% endif %}
+                {% if cs.calories and cs.calories != "0" %}
+                <span> · {{ "%.0f"|format(cs.calories|float) }}kcal</span>
+                {% endif %}
+                {% if cs.avgHeartRate %}
+                <span> · 心率 {{ "%.0f"|format(cs.avgHeartRate|float) }}-{{ "%.0f"|format(cs.maxHeartRate|float) }}bpm</span>
+                {% endif %}
+            {% else %}
+                {% for s in mov.sets %}
+                {% if s.weight and s.weight != "0" and s.reps and s.reps != "0" %}
+                <span>{{ s.weight }}{{ s.unit }} × {{ s.reps }}次</span>
+                {% if s.rpe %}<span style="color:#888;"> RPE {{ s.rpe }}</span>{% endif %}
+                {% elif s.time and s.time != "0" %}
+                <span>{{ s.time }}秒</span>
+                {% else %}
+                <span>{{ s.weight }}{{ s.unit }} × {{ s.reps }}次</span>
+                {% endif %}
+                {% if not loop.last %} | {% endif %}
+                {% endfor %}
+            {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card"><p style="color:#888;padding:12px;">{{ date_str }} 无训练记录</p></div>
+{% endif %}

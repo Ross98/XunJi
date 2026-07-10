@@ -1,0 +1,471 @@
+{% extends "base.html" %}
+{% block title %}饮食历史 - 训记分析{% endblock %}
+{% block content %}
+<h1>饮食历史 <a href="/diet" style="font-size:14px;font-weight:400;color:#888;text-decoration:none;margin-left:12px;">← 返回今日</a></h1>
+
+<div class="card">
+    <div class="tab-bar">
+        <button class="tab-btn active" data-tab="calendar">日历</button>
+        <button class="tab-btn" data-tab="analysis">分析</button>
+        <button class="tab-btn" data-tab="manage">饮食管理</button>
+    </div>
+
+    <!-- Tab 1: 日历 -->
+    <div class="tab-panel active" id="tab-calendar">
+        <div style="margin-bottom:8px;font-size:13px;color:#888;">
+            {{ analysis.summary.days_with_data }} / {{ range_days }} 天有饮食记录
+        </div>
+        <div class="diet-cal-grid" id="dietCalGrid"></div>
+        <div id="dietDayDetail">
+            <p style="color:#888;text-align:center;padding:20px;">点选日期查看当日饮食详情</p>
+        </div>
+    </div>
+
+    <!-- Tab 2: 分析 -->
+    <div class="tab-panel" id="tab-analysis">
+        {% if analysis.summary.days_with_data > 0 %}
+        <div class="grid-2" style="margin-bottom:12px;">
+            <div class="stat"><div class="stat-value">{{ "%.0f"|format(analysis.summary.avg_calories) }}</div><div class="stat-label">日均热量 (kcal)</div></div>
+            <div class="stat"><div class="stat-value">{{ "%.1f"|format(analysis.summary.avg_protein) }}</div><div class="stat-label">日均蛋白质 (g)</div></div>
+            <div class="stat"><div class="stat-value">{{ "%.1f"|format(analysis.summary.avg_carbs) }}</div><div class="stat-label">日均碳水 (g)</div></div>
+            <div class="stat"><div class="stat-value">{{ "%.1f"|format(analysis.summary.avg_fat) }}</div><div class="stat-label">日均脂肪 (g)</div></div>
+        </div>
+        <div style="margin-bottom:8px;">
+            <button class="btn-range active" data-range="7">7天</button>
+            <button class="btn-range" data-range="30">30天</button>
+            <button class="btn-range" data-range="90">90天</button>
+        </div>
+        <h3 style="font-size:14px;color:#555;margin-bottom:6px;">热量趋势</h3>
+        <div class="chart-container" style="height:180px;"><canvas id="calTrendChart"></canvas></div>
+        <h3 style="font-size:14px;color:#555;margin-top:14px;margin-bottom:6px;">宏量营养素分布</h3>
+        <div class="macro-legend">
+            <span class="macro-legend-item"><span class="macro-legend-swatch" style="background:#e53935;"></span>蛋白质</span>
+            <span class="macro-legend-item"><span class="macro-legend-swatch" style="background:#2196f3;"></span>碳水</span>
+            <span class="macro-legend-item"><span class="macro-legend-swatch" style="background:#ff9800;"></span>脂肪</span>
+        </div>
+        <div class="chart-container" style="height:180px;"><canvas id="macroStackChart"></canvas></div>
+        <div class="grid-2" style="margin-top:14px;">
+            <div>
+                <h3 style="font-size:14px;color:#555;margin-bottom:6px;">营养素占比</h3>
+                <div class="chart-container" style="height:200px;"><canvas id="macroPieChart"></canvas></div>
+            </div>
+            <div>
+                <h3 style="font-size:14px;color:#555;margin-bottom:6px;">总览</h3>
+                <div style="padding:12px;font-size:13px;">
+                    <div style="margin-bottom:4px;">蛋白质: {{ analysis.total_ratio.protein_pct }}% ({{ "%.0f"|format(analysis.summary.avg_protein * 4) }} kcal)</div>
+                    <div style="margin-bottom:4px;">碳水: {{ analysis.total_ratio.carbs_pct }}% ({{ "%.0f"|format(analysis.summary.avg_carbs * 4) }} kcal)</div>
+                    <div style="margin-bottom:4px;">脂肪: {{ analysis.total_ratio.fat_pct }}% ({{ "%.0f"|format(analysis.summary.avg_fat * 9) }} kcal)</div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div><p style="color:#888;text-align:center;padding:40px;">{{ range_days }}天内无饮食记录</p></div>
+        {% endif %}
+    </div>
+
+    <!-- Tab 3: 饮食管理 -->
+    <div class="tab-panel" id="tab-manage">
+        {% if analysis.summary.days_with_data > 0 %}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div>
+                <label style="font-size:13px;color:#888;margin-right:6px;">日期:</label>
+                <select id="manageDate" style="padding:4px 8px;font-size:14px;">
+                {% for d in dates_with_data %}
+                    <option value="{{ d }}">{{ d }}</option>
+                {% endfor %}
+                </select>
+            </div>
+            <button class="btn btn-primary" id="addFoodBtn">+ 添加记录</button>
+        </div>
+        <div id="manageMeals"></div>
+        {% else %}
+        <div><p style="color:#888;text-align:center;padding:40px;">{{ range_days }}天内无饮食记录，先在训记 App 记录后再来管理</p></div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="foodModal">
+    <div class="modal-box">
+        <div class="modal-title" id="modalTitle">添加食物</div>
+        <div class="form-group">
+            <label>餐次</label>
+            <select id="modalMealType">
+                <option value="breakfast">早餐</option>
+                <option value="lunch">午餐</option>
+                <option value="dinner">晚餐</option>
+                <option value="snack">加餐</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>食物名称</label>
+            <input type="text" id="modalFoodName" placeholder="输入关键词搜索...">
+            <div class="search-results" id="modalSearchResults"></div>
+        </div>
+        <div class="form-group" id="modalAmountGroup" style="display:none;">
+            <label>份量 (g)</label>
+            <input type="number" id="modalAmount" value="100" min="1">
+            <div class="preview-box" id="modalPreview"></div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn" style="background:#eee;" onclick="closeModal()">取消</button>
+            <button class="btn btn-primary" id="modalConfirmBtn" disabled>确认添加</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// ── Data from server ──
+const dietAnalysis = {{ analysis | tojson | safe }};
+const datesWithData = {{ dates_with_data | tojson | safe }};
+const dateSet = new Set(datesWithData);
+const dateMeals = dietAnalysis.meal_breakdown || {};
+const rangeDays = {{ range_days }};
+const mealLabels = {'breakfast': '早餐', 'lunch': '午餐', 'dinner': '晚餐', 'snack': '加餐'};
+const mealOrder = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+// ── Tab switching ──
+document.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+        document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+        this.classList.add('active');
+        document.getElementById('tab-' + this.dataset.tab).classList.add('active');
+    });
+});
+
+// ── Toast ──
+function showToast(msg, duration) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(function() { t.classList.remove('show'); }, duration || 2000);
+}
+
+// ── Tab 1: Calendar ──
+function buildDietCalendar() {
+    var grid = document.getElementById('dietCalGrid');
+    if (!grid) return;
+    var today = new Date();
+    var start = new Date(today);
+    start.setDate(today.getDate() - rangeDays + 1);
+
+    // Monday=0 alignment
+    var startDow = start.getDay() === 0 ? 6 : start.getDay() - 1;
+    for (var i = 0; i < startDow; i++) {
+        var cell = document.createElement('div');
+        cell.className = 'diet-cal-day empty';
+        grid.appendChild(cell);
+    }
+
+    for (var i = 0; i < rangeDays; i++) {
+        var dt = new Date(start);
+        dt.setDate(start.getDate() + i);
+        var y = dt.getFullYear();
+        var m = String(dt.getMonth() + 1).padStart(2, '0');
+        var d = String(dt.getDate()).padStart(2, '0');
+        var ds = y + '-' + m + '-' + d;
+        var cell = document.createElement('div');
+        cell.className = 'diet-cal-day';
+        if (dateSet.has(ds)) cell.classList.add('has-data');
+        if (ds === today.toISOString().slice(0, 10)) cell.classList.add('today');
+        cell.textContent = dt.getDate();
+        cell.dataset.date = ds;
+        cell.addEventListener('click', function() {
+            document.querySelectorAll('.diet-cal-day').forEach(function(c) { c.classList.remove('selected'); });
+            this.classList.add('selected');
+            renderDayDetail(this.dataset.date);
+        });
+        grid.appendChild(cell);
+    }
+}
+
+function renderDayDetail(dateStr) {
+    var container = document.getElementById('dietDayDetail');
+    var meals = dateMeals[dateStr];
+    if (!meals || Object.keys(meals).length === 0) {
+        container.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">该日无饮食记录</p>';
+        return;
+    }
+    var totalCal = 0;
+    var html = '<div style="font-size:14px;font-weight:600;margin-bottom:8px;">' + dateStr + '</div>';
+    for (var mi = 0; mi < mealOrder.length; mi++) {
+        var mt = mealOrder[mi];
+        var foods = meals[mt];
+        if (!foods || foods.length === 0) continue;
+        var mealCal = 0;
+        var foodRows = '';
+        for (var fi = 0; fi < foods.length; fi++) {
+            var f = foods[fi];
+            var cal = (f.ntr && f.ntr.cal) || 0;
+            var amt = f.amount || 0;
+            var unit = f.unit || 'g';
+            var factor = unit === 'g' ? amt / 100 : 1;
+            var actualCal = (cal * factor).toFixed(0);
+            mealCal += parseFloat(actualCal);
+            foodRows += '<div class="food-row"><span class="food-name">' + f.name + '</span><span class="food-amount">' + amt + unit + '</span><span class="food-cal">' + actualCal + ' kcal</span></div>';
+        }
+        totalCal += mealCal;
+        html += '<div class="meal-section"><div class="meal-header"><span>' + mealLabels[mt] + '</span><span class="meal-cal">' + mealCal.toFixed(0) + ' kcal</span></div>' + foodRows + '</div>';
+    }
+    html += '<div style="font-size:13px;font-weight:600;text-align:right;border-top:1px solid #eee;padding-top:6px;">合计: ' + totalCal.toFixed(0) + ' kcal</div>';
+    container.innerHTML = html;
+}
+buildDietCalendar();
+
+// ── Tab 2: Analysis Charts ──
+var _calTrend, _macroStack, _macroPie;
+
+function renderAnalysisCharts(range) {
+    var dates = datesWithData.slice(-range);
+    if (dates.length === 0) return;
+
+    var calData = dates.map(function(d) { return dietAnalysis.daily_calories[d] || 0; });
+    var macroData = dates.map(function(d) { return dietAnalysis.daily_macros[d] || {protein:0, carbs:0, fat:0}; });
+
+    [_calTrend, _macroStack, _macroPie].forEach(function(ch) { if (ch) { ch.destroy(); } });
+
+    // 1. Calorie trend line
+    var calCtx = document.getElementById('calTrendChart');
+    if (calCtx) {
+        _calTrend = new Chart(calCtx, {
+            type: 'line',
+            data: { labels: dates, datasets: [{ label: '热量 (kcal)', data: calData, borderColor: '#4caf50', tension: 0.3, fill: false, pointRadius: 3 }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        });
+    }
+
+    // 2. Macro stacked bar
+    var stackCtx = document.getElementById('macroStackChart');
+    if (stackCtx) {
+        _macroStack = new Chart(stackCtx, {
+            type: 'bar',
+            data: {
+                labels: dates,
+                datasets: [
+                    { label: '蛋白质', data: macroData.map(function(d) { return d.protein || 0; }), backgroundColor: '#e53935' },
+                    { label: '碳水', data: macroData.map(function(d) { return d.carbs || 0; }), backgroundColor: '#2196f3' },
+                    { label: '脂肪', data: macroData.map(function(d) { return d.fat || 0; }), backgroundColor: '#ff9800' },
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, title: { display: true, text: 'g' } } },
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+
+    // 3. Macro ratio donut
+    var pieCtx = document.getElementById('macroPieChart');
+    if (pieCtx) {
+        var ratio = dietAnalysis.total_ratio;
+        _macroPie = new Chart(pieCtx, {
+            type: 'doughnut',
+            data: { labels: ['蛋白质', '碳水', '脂肪'], datasets: [{ data: [ratio.protein_pct, ratio.carbs_pct, ratio.fat_pct], backgroundColor: ['#e53935', '#2196f3', '#ff9800'] }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        });
+    }
+}
+
+// Range switching (only in analysis tab)
+document.querySelectorAll('#tab-analysis .btn-range').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('#tab-analysis .btn-range').forEach(function(b) { b.classList.remove('active'); });
+        this.classList.add('active');
+        renderAnalysisCharts(parseInt(this.dataset.range));
+    });
+});
+
+// Initial render
+if (datesWithData.length > 0) {
+    renderAnalysisCharts(7);
+}
+
+// ── Tab 3: Diet Management ──
+function renderManageMeals(dateStr) {
+    var container = document.getElementById('manageMeals');
+    if (!container) return;
+    var meals = dateMeals[dateStr];
+    if (!meals || Object.keys(meals).length === 0) {
+        container.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">该日无饮食记录</p>';
+        return;
+    }
+    var html = '';
+    for (var mi = 0; mi < mealOrder.length; mi++) {
+        var mt = mealOrder[mi];
+        var foods = meals[mt];
+        if (!foods || foods.length === 0) continue;
+        var mealCal = 0;
+        var rows = '';
+        for (var fi = 0; fi < foods.length; fi++) {
+            var f = foods[fi];
+            var cal = (f.ntr && f.ntr.cal) || 0;
+            var amt = f.amount || 0;
+            var unit = f.unit || 'g';
+            var factor = unit === 'g' ? amt / 100 : 1;
+            var actualCal = (cal * factor).toFixed(0);
+            mealCal += parseFloat(actualCal);
+            var protein = (f.ntr && f.ntr.protein) ? (f.ntr.protein * factor).toFixed(1) : '-';
+            var carbs = (f.ntr && f.ntr.carb) ? (f.ntr.carb * factor).toFixed(1) : '-';
+            var fat = (f.ntr && f.ntr.fat) ? (f.ntr.fat * factor).toFixed(1) : '-';
+            rows += '<div class="food-row">' +
+                '<span class="food-name">' + f.name + '</span>' +
+                '<span class="food-amount">' + amt + unit + '</span>' +
+                '<span class="food-cal">' + actualCal + '</span>' +
+                '<span class="food-macros">P' + protein + ' C' + carbs + ' F' + fat + '</span>' +
+                '<span class="food-actions">' +
+                '<button class="btn-icon" onclick="editFood(\'' + dateStr + '\',\'' + mt + '\',' + fi + ')" title="编辑">✎</button>' +
+                '<button class="btn-icon danger" onclick="deleteFood(\'' + dateStr + '\',\'' + mt + '\',' + fi + ')" title="删除">✕</button>' +
+                '</span></div>';
+        }
+        html += '<div class="meal-section"><div class="meal-header"><span>' + mealLabels[mt] + '</span><span class="meal-cal">' + mealCal.toFixed(0) + ' kcal</span></div>' + rows + '</div>';
+    }
+    container.innerHTML = html;
+}
+
+// Date selector
+var manageDate = document.getElementById('manageDate');
+if (manageDate) {
+    manageDate.addEventListener('change', function() {
+        renderManageMeals(this.value);
+    });
+    renderManageMeals(manageDate.value);
+}
+
+// ── Modal: Food Search & Add ──
+var modalState = { selectedFood: null };
+var searchTimer = null;
+
+function openModal() {
+    modalState = { selectedFood: null };
+    document.getElementById('modalTitle').textContent = '添加食物';
+    document.getElementById('modalFoodName').value = '';
+    document.getElementById('modalAmount').value = '100';
+    document.getElementById('modalAmountGroup').style.display = 'none';
+    document.getElementById('modalSearchResults').innerHTML = '';
+    document.getElementById('modalPreview').innerHTML = '';
+    document.getElementById('modalConfirmBtn').disabled = true;
+    document.getElementById('modalConfirmBtn').textContent = '确认添加';
+    document.getElementById('foodModal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('foodModal').classList.remove('active');
+}
+
+document.getElementById('addFoodBtn').addEventListener('click', openModal);
+
+// Search on input
+document.getElementById('modalFoodName').addEventListener('input', function() {
+    var q = this.value.trim();
+    if (searchTimer) clearTimeout(searchTimer);
+    if (q.length < 1) {
+        document.getElementById('modalSearchResults').innerHTML = '';
+        return;
+    }
+    searchTimer = setTimeout(function() { doSearch(q); }, 300);
+});
+
+function doSearch(keyword) {
+    fetch('/diet/search?keyword=' + encodeURIComponent(keyword) + '&limit=8')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var results = document.getElementById('modalSearchResults');
+            var foods = data.foods || [];
+            if (foods.length === 0) {
+                results.innerHTML = '<div style="padding:8px;color:#888;font-size:13px;">未找到匹配食物</div>';
+                return;
+            }
+            results.innerHTML = '';
+            foods.forEach(function(f) {
+                var div = document.createElement('div');
+                div.className = 'search-result-item';
+                var ntr = f.ntr || {};
+                div.innerHTML = '<div class="sr-name">' + f.name + '</div>' +
+                    '<div class="sr-ntr">每100g: ' + (ntr.cal || '-') + 'kcal | P' + (ntr.protein || '-') + ' C' + (ntr.carb || '-') + ' F' + (ntr.fat || '-') + '</div>';
+                div.addEventListener('click', function() {
+                    document.querySelectorAll('.search-result-item').forEach(function(i) { i.classList.remove('selected'); });
+                    this.classList.add('selected');
+                    modalState.selectedFood = f;
+                    document.getElementById('modalAmountGroup').style.display = 'block';
+                    updatePreview();
+                    document.getElementById('modalConfirmBtn').disabled = false;
+                });
+                results.appendChild(div);
+            });
+        })
+        .catch(function(e) {
+            showToast('搜索失败: ' + e.message);
+        });
+}
+
+document.getElementById('modalAmount').addEventListener('input', updatePreview);
+
+function updatePreview() {
+    var f = modalState.selectedFood;
+    if (!f) return;
+    var ntr = f.ntr || {};
+    var amt = parseFloat(document.getElementById('modalAmount').value) || 0;
+    var factor = amt / 100;
+    var preview = document.getElementById('modalPreview');
+    preview.innerHTML = '<div class="pv-row"><span>每100g营养:</span><span>' + (ntr.cal || 0) + ' kcal | P' + (ntr.protein || 0) + ' C' + (ntr.carb || 0) + ' F' + (ntr.fat || 0) + '</span></div>' +
+        '<div class="pv-row"><span>实际摄入 (' + amt + 'g):</span><span>' + ((ntr.cal || 0) * factor).toFixed(0) + ' kcal | P' + ((ntr.protein || 0) * factor).toFixed(1) + ' C' + ((ntr.carb || 0) * factor).toFixed(1) + ' F' + ((ntr.fat || 0) * factor).toFixed(1) + '</span></div>';
+}
+
+// Confirm add
+document.getElementById('modalConfirmBtn').addEventListener('click', function() {
+    var f = modalState.selectedFood;
+    if (!f) return;
+    var btn = this;
+    var ntr = f.ntr || {};
+    var amt = parseFloat(document.getElementById('modalAmount').value) || 100;
+    var mealType = document.getElementById('modalMealType').value;
+    var date = manageDate ? manageDate.value : datesWithData[datesWithData.length - 1];
+
+    var foodItem = {
+        date: date,
+        meal_type: mealType,
+        name: f.name,
+        amount: amt,
+        unit: 'g',
+        ntr: { cal: ntr.cal || 0, protein: ntr.protein || 0, carb: ntr.carb || 0, fat: ntr.fat || 0 },
+        uniquekey: f.uniquekey || '',
+    };
+
+    btn.disabled = true;
+    btn.textContent = '提交中...';
+
+    fetch('/diet/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ foods: [foodItem] }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        showToast('添加成功');
+        closeModal();
+        location.reload();
+    })
+    .catch(function(e) {
+        showToast('请求失败: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = '确认添加';
+    });
+});
+
+function editFood(date, mealType, idx) {
+    showToast('编辑功能通过删除后重新添加实现', 2000);
+}
+
+function deleteFood(date, mealType, idx) {
+    if (!confirm('确认删除此条饮食记录？')) return;
+    showToast('删除功能暂未实现，请直接在训记 App 中操作', 3000);
+}
+</script>
+{% endblock %}
