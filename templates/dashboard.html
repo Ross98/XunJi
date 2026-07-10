@@ -2,6 +2,7 @@
 {% block title %}总览 - 训记分析{% endblock %}
 {% block content %}
 <h1>总览仪表盘</h1>
+
 <div class="grid-3">
     <div class="card">
         <div class="stat">
@@ -22,11 +23,130 @@
         </div>
     </div>
 </div>
+
 {% if weight_trend %}
 <div class="card">
     <div class="card-title">体重趋势（最近90天）</div>
     <div class="chart-container"><canvas id="weightChart"></canvas></div>
 </div>
+{% endif %}
+
+<!-- Apple Health 区域 -->
+{% if health and health.has_data %}
+<h2 style="margin-top:24px;font-size:18px;">健康数据 (Apple Health)</h2>
+
+<!-- 恢复指标 -->
+<div class="grid-3">
+    <div class="card">
+        <div class="stat">
+            <div class="stat-label">HRV</div>
+            <div class="stat-value">{{ "%.0f"|format(health.latest_hrv) if health.latest_hrv else '--' }}</div>
+            <div style="color:#888;font-size:11px;">{{ "ms · " + health.hrv_date if health.hrv_date else '' }}</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="stat-label">静息心率</div>
+            <div class="stat-value">{{ "%.0f"|format(health.latest_rhr) if health.latest_rhr else '--' }}</div>
+            <div style="color:#888;font-size:11px;">{{ "bpm · " + health.rhr_date if health.rhr_date else '' }}</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="stat-label">VO₂ Max</div>
+            <div class="stat-value">{{ "%.1f"|format(health.latest_vo2) if health.latest_vo2 else '--' }}</div>
+            <div style="color:#888;font-size:11px;">{{ "ml/kg/min · " + health.vo2_date if health.vo2_date else '' }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- 趋势图 -->
+<div class="card">
+    <div class="card-title">健康趋势 (近90天)</div>
+    <div style="margin-bottom:12px;display:flex;gap:8px;">
+        <button class="btn-range active" onclick="switchMetric('hrv', this)" id="btn-hrv">HRV</button>
+        <button class="btn-range" onclick="switchMetric('rhr', this)" id="btn-rhr">静息心率</button>
+        <button class="btn-range" onclick="switchMetric('vo2', this)" id="btn-vo2">VO₂ Max</button>
+    </div>
+    <div class="chart-container"><canvas id="healthChart"></canvas></div>
+</div>
+
+<!-- 今日活动 -->
+<div class="grid-3">
+    <div class="card">
+        <div class="stat">
+            <div class="stat-label">今日步数</div>
+            <div class="stat-value">{{ health.today_steps }}</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="stat-label">运动分钟</div>
+            <div class="stat-value">{{ health.today_exercise }} <span style="font-size:14px;color:#888;">min</span></div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="stat-label">站立小时</div>
+            <div class="stat-value">{{ health.today_stand }} <span style="font-size:14px;color:#888;">hr</span></div>
+        </div>
+    </div>
+</div>
+
+<script>
+const trendData = {
+    hrv: {{ health.hrv_trend | safe }},
+    rhr: {{ health.rhr_trend | safe }},
+    vo2: {{ health.vo2_trend | safe }},
+};
+
+let healthChart = null;
+
+function getMetricLabel(m) {
+    return { hrv: 'HRV (ms)', rhr: '静息心率 (bpm)', vo2: 'VO₂ Max (ml/kg/min)' }[m];
+}
+
+function switchMetric(metric, btn) {
+    document.querySelectorAll('.btn-range').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderChart(metric);
+}
+
+function renderChart(metric) {
+    const data = trendData[metric];
+    if (!data || data.length === 0) return;
+    if (healthChart) healthChart.destroy();
+    healthChart = new Chart(document.getElementById('healthChart'), {
+        type: 'line',
+        data: {
+            labels: data.map(d => d.date),
+            datasets: [{
+                label: getMetricLabel(metric),
+                data: data.map(d => d.value),
+                borderColor: '#e94560',
+                backgroundColor: 'rgba(233,69,96,0.1)',
+                tension: 0.3,
+                fill: true,
+                pointRadius: 3,
+                pointBackgroundColor: '#e94560',
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: false } }
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (trendData.hrv && trendData.hrv.length > 0) renderChart('hrv');
+});
+</script>
+{% endif %}
+
+{% if weight_trend %}
 <script>
 const wData = {{ weight_trend | tojson | safe }};
 if (wData.length > 0) {
