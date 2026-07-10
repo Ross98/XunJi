@@ -144,6 +144,65 @@ document.addEventListener('DOMContentLoaded', function() {
     if (trendData.hrv && trendData.hrv.length > 0) renderChart('hrv');
 });
 </script>
+
+<!-- 恢复分析 -->
+{% if recovery and recovery.chart_data %}
+<div class="card">
+    <div class="card-title">恢复分析 (近14天 HRV)</div>
+    <div class="grid-3" style="margin-bottom:16px;">
+        <div class="card"><div class="stat"><div class="stat-label">训练日平均</div><div class="stat-value">{{ "%.1f"|format(recovery.train_avg) if recovery.train_avg else '--' }}</div></div></div>
+        <div class="card"><div class="stat"><div class="stat-label">休息日平均</div><div class="stat-value">{{ "%.1f"|format(recovery.rest_avg) if recovery.rest_avg else '--' }}</div></div></div>
+        <div class="card"><div class="stat"><div class="stat-label">今日 HRV</div><div class="stat-value">{{ "%.1f"|format(recovery.today_hrv) if recovery.today_hrv else '--' }}</div>
+            {% if recovery.vs_train_pct is not none %}
+            <div style="font-size:11px;margin-top:2px;"><span class="{% if recovery.vs_train_pct > 0 %}change-down{% else %}change-up{% endif %}">{{ "+" if recovery.vs_train_pct|abs > 0.1 else "" }}{{ "%.1f"|format(recovery.vs_train_pct) }}% vs 训练日</span></div>
+            {% endif %}
+        </div></div>
+    </div>
+    <div class="chart-container"><canvas id="recoveryChart"></canvas></div>
+</div>
+
+<script>
+const recData = {{ recovery.chart_data | safe }};
+if (recData && recData.length > 0) {
+    const pointColors = recData.map(p => p.train_day ? '#e94560' : '#1a1a2e');
+    const pointRadii = recData.map(p => p.train_day ? 6 : 3);
+    new Chart(document.getElementById('recoveryChart'), {
+        type: 'line',
+        data: {
+            labels: recData.map(p => p.date),
+            datasets: [{
+                label: 'HRV (ms)',
+                data: recData.map(p => p.value),
+                borderColor: '#e94560',
+                backgroundColor: 'rgba(233,69,96,0.1)',
+                tension: 0.3,
+                fill: true,
+                pointBackgroundColor: pointColors,
+                pointBorderColor: pointColors,
+                pointRadius: pointRadii,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        afterLabel: function(ctx) {
+                            return recData[ctx.dataIndex].train_day ? '📍 训练日' : '休息日';
+                        }
+                    }
+                }
+            },
+            scales: { y: { beginAtZero: false } }
+        }
+    });
+}
+</script>
+{% endif %}
+
+
 {% endif %}
 
 {% if weight_trend %}
