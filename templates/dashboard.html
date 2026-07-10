@@ -7,13 +7,13 @@
     <div class="card">
         <div class="stat">
             <div class="stat-value">{{ summary.total_days if summary.total_days > 0 else "--" }}</div>
-            <div class="stat-label">今日训练数</div>
+            <div class="stat-label">昨日训练数</div>
         </div>
     </div>
     <div class="card">
         <div class="stat">
             <div class="stat-value">{{ "%.0f"|format(today_calories) if today_calories else "--" }}</div>
-            <div class="stat-label">今日热量 (kcal)</div>
+            <div class="stat-label">昨日热量 (kcal)</div>
         </div>
     </div>
     <div class="card">
@@ -32,15 +32,15 @@
 
 <!-- 恢复指标 -->
 <div class="grid-3">
-    <div class="card"><div class="stat"><div class="stat-label">HRV</div><div class="stat-value">{{ "%.0f"|format(health.latest_hrv) if health.latest_hrv else '--' }}</div><div style="color:#888;font-size:11px;">{{ "ms · " + health.hrv_date if health.hrv_date else '' }}</div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">静息心率</div><div class="stat-value">{{ "%.0f"|format(health.latest_rhr) if health.latest_rhr else '--' }}</div><div style="color:#888;font-size:11px;">{{ "bpm · " + health.rhr_date if health.rhr_date else '' }}</div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">VO₂ Max</div><div class="stat-value">{{ "%.1f"|format(health.latest_vo2) if health.latest_vo2 else '--' }}</div><div style="color:#888;font-size:11px;">{{ "ml/kg/min · " + health.vo2_date if health.vo2_date else '' }}</div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">HRV</div><div class="stat-value">{{ "%.0f"|format(health.latest_hrv) if health.latest_hrv else '--' }} <span style="font-size:14px;color:#888;">ms</span></div><div style="color:#888;font-size:11px;">{{ "ms · " + health.hrv_date if health.hrv_date else '' }}</div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">静息心率</div><div class="stat-value">{{ "%.0f"|format(health.latest_rhr) if health.latest_rhr else '--' }} <span style="font-size:14px;color:#888;">bpm</span></div><div style="color:#888;font-size:11px;">{{ "bpm · " + health.rhr_date if health.rhr_date else '' }}</div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">VO₂ Max</div><div class="stat-value">{{ "%.1f"|format(health.latest_vo2) if health.latest_vo2 else '--' }} <span style="font-size:14px;color:#888;">ml/kg/min</span></div><div style="color:#888;font-size:11px;">{{ "ml/kg/min · " + health.vo2_date if health.vo2_date else '' }}</div></div></div>
 </div>
 <!-- 今日活动 -->
 <div class="grid-3">
-    <div class="card"><div class="stat"><div class="stat-label">今日步数</div><div class="stat-value">{{ health.today_steps }}</div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">运动分钟</div><div class="stat-value">{{ health.today_exercise }} <span style="font-size:14px;color:#888;">min</span></div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">站立小时</div><div class="stat-value">{{ health.today_stand }} <span style="font-size:14px;color:#888;">hr</span></div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">昨日步数</div><div class="stat-value">{{ health.today_steps }}</div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">昨日活动</div><div class="stat-value">{{ health.today_exercise }} <span style="font-size:14px;color:#888;">min</span></div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">昨日站立</div><div class="stat-value">{{ health.today_stand }} <span style="font-size:14px;color:#888;">min</span></div></div></div>
 </div>
 
 <!-- 趋势图 独立 -->
@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="grid-3">
     <div class="card"><div class="stat"><div class="stat-label">训练日平均</div><div class="stat-value">{{ "%.1f"|format(recovery.train_avg) if recovery.train_avg else '--' }}</div></div></div>
     <div class="card"><div class="stat"><div class="stat-label">休息日平均</div><div class="stat-value">{{ "%.1f"|format(recovery.rest_avg) if recovery.rest_avg else '--' }}</div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">今日 HRV</div><div class="stat-value">{{ "%.1f"|format(recovery.today_hrv) if recovery.today_hrv else '--' }}</div>
+    <div class="card"><div class="stat"><div class="stat-label">最新 HRV</div><div class="stat-value">{{ "%.1f"|format(recovery.today_hrv) if recovery.today_hrv else '--' }}</div>
         {% if recovery.vs_train_pct is not none %}
         <div style="font-size:11px;margin-top:2px;"><span class="{% if recovery.vs_train_pct > 0 %}change-down{% else %}change-up{% endif %}">{{ "+" if recovery.vs_train_pct|abs > 0.1 else "" }}{{ "%.1f"|format(recovery.vs_train_pct) }}% vs 训练日</span></div>
         {% endif %}

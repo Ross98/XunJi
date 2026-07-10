@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app_state import get_jinja_env, get_data_service
 from analysis import summarize_training, summarize_body, body_latest
+import apple_health as _apple_health
 
 router = APIRouter(tags=["dashboard"])
 
@@ -40,12 +41,14 @@ def _build_trend(records: list[dict]) -> list[dict]:
 async def dashboard(request: Request):
     ds = get_data_service()
     today = date.today().isoformat()
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
     three_months = (date.today() - timedelta(days=90)).isoformat()
 
     # ── 训记数据 ──
-    training_data = await ds.get_training(today)
+    training_data = await ds.get_training(yesterday)
     trains = training_data.get("res", {}).get("trains", [])
     summary = summarize_training(trains)
+
 
     body_data = await ds.get_body(three_months, today)
     records = body_data.get("res", {}).get("records", [])
@@ -54,7 +57,7 @@ async def dashboard(request: Request):
     body_summary = summarize_body(records)
     latest_body = body_latest(records)
 
-    diet_data = await ds.get_diet(today, today)
+    diet_data = await ds.get_diet(yesterday, yesterday)
     diet_records = diet_data.get("res", {}).get("records", [])
     if not diet_records:
         diet_records = diet_data.get("records", [])
@@ -84,11 +87,11 @@ async def dashboard(request: Request):
         rhr_trend = _build_trend(rhr_raw)
         vo2_trend = _build_trend(vo2_raw)
 
-        step_raw = ah.query_records("HKQuantityTypeIdentifierStepCount", today, today)
+        step_raw = ah.query_records("HKQuantityTypeIdentifierStepCount", yesterday, yesterday + " 23:59:59")
         today_steps = sum(r["value"] for r in step_raw if r.get("value")) if step_raw else 0
-        ex_raw = ah.query_records("HKQuantityTypeIdentifierAppleExerciseTime", today, today)
+        ex_raw = ah.query_records("HKQuantityTypeIdentifierAppleExerciseTime", yesterday, yesterday + " 23:59:59")
         today_exercise = sum(r["value"] for r in ex_raw if r.get("value")) if ex_raw else 0
-        stand_raw = ah.query_records_desc("HKCategoryTypeIdentifierAppleStandHour", today, today)
+        stand_raw = ah.query_records_desc("HKQuantityTypeIdentifierAppleStandTime", yesterday, yesterday + " 23:59:59")
         today_stand = sum(1 for r in stand_raw if r.get("value") and r["value"] >= 1) if stand_raw else 0
 
         latest_hrv = hrv_raw[-1]["value"] if hrv_raw else None
@@ -105,6 +108,7 @@ async def dashboard(request: Request):
             "latest_vo2": latest_vo2,
             "today_steps": int(today_steps),
             "today_exercise": int(today_exercise),
+            "yesterday": yesterday,
             "today_stand": today_stand,
         }
 
@@ -162,6 +166,24 @@ async def dashboard(request: Request):
                 }
         except Exception:
             recovery = None
+
+    # Force Apple Health data (override training count & calories)
+    try:
+        aw_wos = _apple_health.query_workouts(start=yesterday, end=yesterday + " 23:59:59")
+        if aw_wos:
+            aw_c = len(aw_wos)
+            if aw_c > summary.get("total_days", 0):
+                summary["total_days"] = aw_c
+    except Exception:
+        pass
+    try:
+        cal_recs = _apple_health.query_records("HKQuantityTypeIdentifierActiveEnergyBurned", yesterday, yesterday + " 23:59:59")
+        if cal_recs:
+            cal_sum = round(sum(r["value"] for r in cal_recs if r.get("value")))
+            if cal_sum > 0:
+                today_calories = cal_sum
+    except Exception:
+        pass
 
     env = get_jinja_env()
     tmpl = env.get_template("dashboard.html")
