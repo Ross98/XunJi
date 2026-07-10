@@ -106,6 +106,9 @@ async def dashboard(request: Request):
             "today_steps": int(today_steps),
             "today_exercise": int(today_exercise),
             "today_stand": today_stand,
+            "score": _calc_score(hrv_raw, rhr_raw, vo2_raw, step_raw, ex_raw, today),
+            "score_trend": json.dumps(_score_trend(hrv_raw, rhr_raw, vo2_raw)),
+            "score_components": _today_score_breakdown(hrv_raw, rhr_raw, vo2_raw, today_steps, today_exercise)),
         }
 
         # ── 恢复分析 (训练日 vs 休息日) ──
@@ -174,3 +177,71 @@ async def dashboard(request: Request):
         health=health_data,
         recovery=recovery,
     ))
+
+# ── Health Score ──
+
+def _calc_score(hrv_raw, rhr_raw, vo2_raw, step_raw, ex_raw, today):
+    from collections import defaultdict as _dd
+    def _day_vals(recs):
+        by = _dd(list)
+        for r in recs:
+            d = r.get("start_date","")[:10]
+            v = r.get("value")
+            if d and v is not None: by[d].append(float(v))
+        return {d: sum(vs)/len(vs) for d,vs in by.items()}
+    hrv_d = _day_vals(hrv_raw); rhr_d = _day_vals(rhr_raw); vo2_d = _day_vals(vo2_raw)
+    step_d = _day_vals(step_raw); ex_d = _day_vals(ex_raw)
+
+    def _score(hrv, rhr, vo2, steps, exercise):
+        s = 0; c = 0
+        if hrv is not None: s += min(max((hrv-30)/40*20,0),20); c += 1
+        if rhr is not None: s += min(max((65-rhr)/20*20,0),20); c += 1
+        if vo2 is not None: s += min(max((vo2-35)/20*20,0),20); c += 1
+        if steps is not None: s += min(steps/10000*20,20); c += 1
+        if exercise is not None: s += min(exercise/30*20,20); c += 1
+        return round(s / c * 5) if c else 0
+
+    h = hrv_d.get(today); r = rhr_d.get(today); v = vo2_d.get(today)
+    st = step_d.get(today); ex = ex_d.get(today)
+    return _score(h, r, v, st, ex)
+
+def _score_trend(hrv_raw, rhr_raw, vo2_raw):
+    from collections import defaultdict as _dd
+    from datetime import date, timedelta
+    def _day_vals(recs):
+        by = _dd(list)
+        for r in recs:
+            d = r.get("start_date","")[:10]; v = r.get("value")
+            if d and v is not None: by[d].append(float(v))
+        return {d: sum(vs)/len(vs) for d,vs in by.items()}
+    hrv_d = _day_vals(hrv_raw); rhr_d = _day_vals(rhr_raw); vo2_d = _day_vals(vo2_raw)
+    result = []
+    for i in range(30, -1, -1):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        s = 0; c = 0
+        if d in hrv_d: s += min(max((hrv_d[d]-30)/40*20,0),20); c += 1
+        if d in rhr_d: s += min(max((65-rhr_d[d])/20*20,0),20); c += 1
+        if d in vo2_d: s += min(max((vo2_d[d]-35)/20*20,0),20); c += 1
+        score = round(s / c * 5) if c else 0
+        result.append({"date": d[5:], "value": score})
+    return result
+
+def _today_score_breakdown(hrv_raw, rhr_raw, vo2_raw, steps, exercise):
+    from datetime import date
+    from collections import defaultdict as _dd
+    today = date.today().isoformat()
+    def _day_vals(recs):
+        by = _dd(list)
+        for r in recs:
+            d = r.get("start_date","")[:10]; v = r.get("value")
+            if d and v is not None: by[d].append(float(v))
+        return {d: sum(vs)/len(vs) for d,vs in by.items()}
+    hrv_d = _day_vals(hrv_raw); rhr_d = _day_vals(rhr_raw); vo2_d = _day_vals(vo2_raw)
+    h = hrv_d.get(today); r = rhr_d.get(today); v = vo2_d.get(today)
+    comps = {}
+    if h: comps["HRV"] = round(min(max((h-30)/40*20,0),20),1)
+    if r: comps["RHR"] = round(min(max((65-r)/20*20,0),20),1)
+    if v: comps["VO2"] = round(min(max((v-35)/20*20,0),20),1)
+    if steps: comps["Steps"] = round(min(steps/10000*20,20),1)
+    if exercise: comps["运动"] = round(min(exercise/30*20,20),1)
+    return comps
