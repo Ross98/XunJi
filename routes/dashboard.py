@@ -73,8 +73,8 @@ async def dashboard(request: Request):
 
     if has_health:
         ah = _get_ah()
-        end = today
-        start = (date.today() - timedelta(days=90)).isoformat()
+        end = today + ' 23:59:59'
+        start = (date.today() - timedelta(days=90)).isoformat() + ' 00:00:00'
 
         hrv_raw = ah.query_records("HKQuantityTypeIdentifierHeartRateVariabilitySDNN", start, end)
         rhr_raw = ah.query_records("HKQuantityTypeIdentifierRestingHeartRate", start, end)

@@ -171,10 +171,10 @@ def query_records(type_filter: str = None,
         sql += " AND type = ?"
         params.append(type_filter)
     if start:
-        sql += " AND start_date >= ?"
+        sql += " AND substr(start_date,1,10) >= ?"
         params.append(start)
     if end:
-        sql += " AND start_date <= ?"
+        sql += " AND substr(start_date,1,10) <= ?"
         params.append(end)
     sql += " ORDER BY start_date"
     if limit:
@@ -196,10 +196,10 @@ def query_workouts(activity_type: str = None,
         sql += " AND workout_activity_type = ?"
         params.append(activity_type)
     if start:
-        sql += " AND start_date >= ?"
+        sql += " AND substr(start_date,1,10) >= ?"
         params.append(start)
     if end:
-        sql += " AND start_date <= ?"
+        sql += " AND substr(start_date,1,10) <= ?"
         params.append(end)
     sql += " ORDER BY start_date DESC"
     if limit:
@@ -243,3 +243,27 @@ def get_import_count() -> dict:
         "total_records": sum(r["cnt"] for r in records),
         "total_workouts": sum(r["cnt"] for r in workouts),
     }
+
+def query_records_desc(type_filter: str = None,
+                       start: str = None,
+                       end: str = None,
+                       limit: int = None) -> list[dict]:
+    """查询健康记录，按日期倒序（最新在前）。"""
+    sql = "SELECT * FROM health_records WHERE 1=1"
+    params = []
+    if type_filter:
+        sql += " AND type = ?"
+        params.append(type_filter)
+    if start:
+        sql += " AND substr(start_date,1,10) >= ?"
+        params.append(start)
+    if end:
+        sql += " AND substr(start_date,1,10) <= ?"
+        params.append(end)
+    sql += " ORDER BY start_date DESC"
+    if limit:
+        sql += f" LIMIT {limit}"
+
+    with _conn() as conn:
+        rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
