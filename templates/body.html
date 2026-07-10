@@ -126,6 +126,7 @@ function cancelHeightEdit() {
                     <th>体脂率 (%)</th>
                     <th>BMI</th>
                     <th>体重变化</th>
+                    <th>来源</th>
                 </tr>
             </thead>
             <tbody>
@@ -135,6 +136,7 @@ function cancelHeightEdit() {
                     <td>{{ row.get("weight","--") }}</td>
                     <td>{{ row.get("bodyfat","--") }}</td>
                     <td>{{ row.get("bmi","--") }}</td>
+                    <td>{{ row.get("source","") }}</td>
                     <td>
                         {% set wc = row.get("weight_change") %}
                         {% if wc is not none and wc != 0 %}

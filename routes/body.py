@@ -32,6 +32,72 @@ RANGE_MAP = {
 }
 
 
+def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list[dict], set]:
+    """将 Apple Health 身体数据合并到训记记录中。
+    返回 (合并后的记录, 有 Apple Health 数据的日期集合)。
+    """
+    import apple_health as ah
+
+    ah_weight = ah.query_records_desc("HKQuantityTypeIdentifierBodyMass", start, end)
+    ah_bf = ah.query_records_desc("HKQuantityTypeIdentifierBodyFatPercentage", start, end)
+
+    if not ah_weight and not ah_bf:
+        return records, set()
+
+    ah_dates = set()
+    # Convert Apple Health records to 训记 format, merge by date
+    # Key: date string -> {type: value}
+    ah_by_date: dict[str, dict] = {}
+
+    for r in ah_weight:
+        d = r["start_date"][:10]
+        ah_dates.add(d)
+        if d not in ah_by_date:
+            ah_by_date[d] = {}
+        # Keep the first (most recent) value for each date
+        if "weight" not in ah_by_date[d]:
+            ah_by_date[d]["weight"] = round(r["value"], 2) if r["value"] else None
+
+    for r in ah_bf:
+        d = r["start_date"][:10]
+        ah_dates.add(d)
+        if d not in ah_by_date:
+            ah_by_date[d] = {}
+        if "bodyfat" not in ah_by_date[d]:
+            # Apple Health stores body fat as decimal 0.19 = 19%
+            bf_val = round(r["value"] * 100, 1) if r["value"] else None
+            ah_by_date[d]["bodyfat"] = bf_val
+
+    # Build merged records list
+    existing_dates = set()
+    for rec in records:
+        d = rec.get("datestr", "")
+        if d:
+            existing_dates.add(d)
+
+    merged = list(records)
+
+    for d, vals in ah_by_date.items():
+        for typ, val in vals.items():
+            if val is None:
+                continue
+            # Skip if 训记 already has this type on this date
+            has_existing = False
+            for existing in records:
+                if existing.get("datestr") == d and existing.get("type") == typ:
+                    has_existing = True
+                    break
+            if not has_existing:
+                merged.append({
+                    "datestr": d,
+                    "type": typ,
+                    "value": str(val),
+                    "source": "apple_health",
+                })
+
+    return merged, ah_dates
+
+
 @router.get("/body", response_class=HTMLResponse)
 async def body_page(
     request: Request,
@@ -46,6 +112,9 @@ async def body_page(
     records = body_data.get("res", {}).get("records", [])
     if not records:
         records = body_data.get("records", [])
+
+    # Merge Apple Health data
+    records, ah_dates = _merge_apple_health(records, start, today)
 
     summary = summarize_body(records)
     latest = body_latest(records)
@@ -97,6 +166,8 @@ async def body_page(
 
     env = get_jinja_env()
     tmpl = env.get_template("body.html")
+    ah_source = len(ah_dates) > 0  # 是否有 Apple Health 数据
+
     return HTMLResponse(tmpl.render(
         request=request,
         weight_trend=summary["weight_trend"],
@@ -113,6 +184,8 @@ async def body_page(
         period_bf_change=period_bf_change,
         height_cm=height_cm,
         records_data=_build_table_data(records, changes),
+        ah_source=ah_source,
+        ah_dates=ah_dates,
     ))
 
 
@@ -149,5 +222,9 @@ def _build_table_data(records: list[dict], changes: dict[str, float]) -> list[di
                 bmi_val = calculate_bmi(float(v))
                 if bmi_val is not None:
                     by_date[d]["bmi"] = bmi_val
+            # Track source
+            src = rec.get("source", "")
+            if src == "apple_health":
+                by_date[d]["source"] = "🍎"
     rows = sorted(by_date.values(), key=lambda x: x["date"], reverse=True)
     return rows
