@@ -25,60 +25,6 @@
 </div>
 
 
-<!-- 健康评分 -->
-{% if health and health.score is not none %}
-<div class="card">
-    <div class="card-title">健康评分 (综合)</div>
-    <div style="display:flex;align-items:center;gap:24px;margin-bottom:16px;">
-        <div style="font-size:48px;font-weight:700;color:#1a1a2e;min-width:100px;text-align:center;">{{ health.score }}</div>
-        <div style="flex:1;font-size:13px;color:#666;">
-            <div style="display:flex;gap:16px;flex-wrap:wrap;">
-                {% for name, val in (health.score_components|default({})).items() %}
-                <div><span style="color:#1a1a2e;font-weight:600;">{{ name }}</span> {{ "%.1f"|format(val) }}/20</div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-    <div class="chart-container"><canvas id="scoreChart"></canvas></div>
-</div>
-<script>
-const scoreData = {{ health.score_trend | safe }};
-if (scoreData && scoreData.length > 0) {
-    new Chart(document.getElementById('scoreChart'), {
-        type: 'line',
-        data: {
-            labels: scoreData.map(d => d.date),
-            datasets: [{
-                label: '健康评分',
-                data: scoreData.map(d => d.value),
-                borderColor: '#2ecc71',
-                backgroundColor: 'rgba(46,204,113,0.1)',
-                tension: 0.3,
-                fill: true,
-                pointRadius: 2,
-                pointBackgroundColor: '#2ecc71',
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                y: { min: 0, max: 100, ticks: { stepSize: 20 } }
-            }
-        }
-    });
-}
-</script>
-{% endif %}
-
-
-{% if weight_trend %}
-<div class="card">
-    <div class="card-title">体重趋势（最近90天）</div>
-    <div class="chart-container"><canvas id="weightChart"></canvas></div>
-</div>
-{% endif %}
 
 <!-- Apple Health 区域 -->
 {% if health and health.has_data %}
@@ -86,135 +32,70 @@ if (scoreData && scoreData.length > 0) {
 
 <!-- 恢复指标 -->
 <div class="grid-3">
-    <div class="card">
-        <div class="stat">
-            <div class="stat-label">HRV</div>
-            <div class="stat-value">{{ "%.0f"|format(health.latest_hrv) if health.latest_hrv else '--' }}</div>
-            <div style="color:#888;font-size:11px;">{{ "ms · " + health.hrv_date if health.hrv_date else '' }}</div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="stat">
-            <div class="stat-label">静息心率</div>
-            <div class="stat-value">{{ "%.0f"|format(health.latest_rhr) if health.latest_rhr else '--' }}</div>
-            <div style="color:#888;font-size:11px;">{{ "bpm · " + health.rhr_date if health.rhr_date else '' }}</div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="stat">
-            <div class="stat-label">VO₂ Max</div>
-            <div class="stat-value">{{ "%.1f"|format(health.latest_vo2) if health.latest_vo2 else '--' }}</div>
-            <div style="color:#888;font-size:11px;">{{ "ml/kg/min · " + health.vo2_date if health.vo2_date else '' }}</div>
-        </div>
-    </div>
+    <div class="card"><div class="stat"><div class="stat-label">HRV</div><div class="stat-value">{{ "%.0f"|format(health.latest_hrv) if health.latest_hrv else '--' }}</div><div style="color:#888;font-size:11px;">{{ "ms · " + health.hrv_date if health.hrv_date else '' }}</div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">静息心率</div><div class="stat-value">{{ "%.0f"|format(health.latest_rhr) if health.latest_rhr else '--' }}</div><div style="color:#888;font-size:11px;">{{ "bpm · " + health.rhr_date if health.rhr_date else '' }}</div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">VO₂ Max</div><div class="stat-value">{{ "%.1f"|format(health.latest_vo2) if health.latest_vo2 else '--' }}</div><div style="color:#888;font-size:11px;">{{ "ml/kg/min · " + health.vo2_date if health.vo2_date else '' }}</div></div></div>
 </div>
-
-<!-- 趋势图 -->
-<div class="card">
-    <div class="card-title">健康趋势 (近90天)</div>
-    <div style="margin-bottom:12px;display:flex;gap:8px;">
-        <button class="btn-range active" onclick="switchMetric('hrv', this)" id="btn-hrv">HRV</button>
-        <button class="btn-range" onclick="switchMetric('rhr', this)" id="btn-rhr">静息心率</button>
-        <button class="btn-range" onclick="switchMetric('vo2', this)" id="btn-vo2">VO₂ Max</button>
-    </div>
-    <div class="chart-container"><canvas id="healthChart"></canvas></div>
-</div>
-
 <!-- 今日活动 -->
 <div class="grid-3">
-    <div class="card">
-        <div class="stat">
-            <div class="stat-label">今日步数</div>
-            <div class="stat-value">{{ health.today_steps }}</div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="stat">
-            <div class="stat-label">运动分钟</div>
-            <div class="stat-value">{{ health.today_exercise }} <span style="font-size:14px;color:#888;">min</span></div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="stat">
-            <div class="stat-label">站立小时</div>
-            <div class="stat-value">{{ health.today_stand }} <span style="font-size:14px;color:#888;">hr</span></div>
-        </div>
-    </div>
+    <div class="card"><div class="stat"><div class="stat-label">今日步数</div><div class="stat-value">{{ health.today_steps }}</div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">运动分钟</div><div class="stat-value">{{ health.today_exercise }} <span style="font-size:14px;color:#888;">min</span></div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">站立小时</div><div class="stat-value">{{ health.today_stand }} <span style="font-size:14px;color:#888;">hr</span></div></div></div>
+</div>
+
+<!-- 趋势图 独立 -->
+<div class="card">
+    <div class="card-title">HRV 趋势 (近90天)</div>
+    <div class="chart-container"><canvas id="hrvChart"></canvas></div>
+</div>
+<div class="card">
+    <div class="card-title">静息心率 趋势 (近90天)</div>
+    <div class="chart-container"><canvas id="rhrChart"></canvas></div>
+</div>
+<div class="card">
+    <div class="card-title">VO₂ Max 趋势 (近90天)</div>
+    <div class="chart-container"><canvas id="vo2Chart"></canvas></div>
 </div>
 
 <script>
-const trendData = {
-    hrv: {{ health.hrv_trend | safe }},
-    rhr: {{ health.rhr_trend | safe }},
-    vo2: {{ health.vo2_trend | safe }},
-};
-
-let healthChart = null;
-
-function getMetricLabel(m) {
-    return { hrv: 'HRV (ms)', rhr: '静息心率 (bpm)', vo2: 'VO₂ Max (ml/kg/min)' }[m];
-}
-
-function switchMetric(metric, btn) {
-    document.querySelectorAll('.btn-range').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    renderChart(metric);
-}
-
-function renderChart(metric) {
-    const data = trendData[metric];
+const HRV_DATA = {{ health.hrv_trend | safe }};
+const RHR_DATA = {{ health.rhr_trend | safe }};
+const VO2_DATA = {{ health.vo2_trend | safe }};
+function mkChart(id, data, label, color) {
     if (!data || data.length === 0) return;
-    if (healthChart) healthChart.destroy();
-    healthChart = new Chart(document.getElementById('healthChart'), {
+    new Chart(document.getElementById(id), {
         type: 'line',
-        data: {
-            labels: data.map(d => d.date),
-            datasets: [{
-                label: getMetricLabel(metric),
-                data: data.map(d => d.value),
-                borderColor: '#e94560',
-                backgroundColor: 'rgba(233,69,96,0.1)',
-                tension: 0.3,
-                fill: true,
-                pointRadius: 3,
-                pointBackgroundColor: '#e94560',
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: false } }
-        }
+        data: { labels: data.map(d => d.date), datasets: [{ label: label, data: data.map(d => d.value), borderColor: color, backgroundColor: color.replace(')', ',0.1)').replace('rgb', 'rgba'), tension: 0.3, fill: true, pointRadius: 2 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: false } } }
     });
 }
-
 document.addEventListener('DOMContentLoaded', function() {
-    if (trendData.hrv && trendData.hrv.length > 0) renderChart('hrv');
+    mkChart('hrvChart', HRV_DATA, 'HRV (ms)', '#e94560');
+    mkChart('rhrChart', RHR_DATA, '静息心率 (bpm)', '#3498db');
+    mkChart('vo2Chart', VO2_DATA, 'VO₂ Max (ml/kg/min)', '#2ecc71');
 });
 </script>
-
-<!-- 恢复分析 -->
+{% endif %}
 {% if recovery and recovery.chart_data %}
+<div class="grid-3">
+    <div class="card"><div class="stat"><div class="stat-label">训练日平均</div><div class="stat-value">{{ "%.1f"|format(recovery.train_avg) if recovery.train_avg else '--' }}</div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">休息日平均</div><div class="stat-value">{{ "%.1f"|format(recovery.rest_avg) if recovery.rest_avg else '--' }}</div></div></div>
+    <div class="card"><div class="stat"><div class="stat-label">今日 HRV</div><div class="stat-value">{{ "%.1f"|format(recovery.today_hrv) if recovery.today_hrv else '--' }}</div>
+        {% if recovery.vs_train_pct is not none %}
+        <div style="font-size:11px;margin-top:2px;"><span class="{% if recovery.vs_train_pct > 0 %}change-down{% else %}change-up{% endif %}">{{ "+" if recovery.vs_train_pct|abs > 0.1 else "" }}{{ "%.1f"|format(recovery.vs_train_pct) }}% vs 训练日</span></div>
+        {% endif %}
+    </div></div>
+</div>
 <div class="card">
     <div class="card-title">恢复分析 (近14天 HRV)</div>
-    <div class="grid-3" style="margin-bottom:16px;">
-        <div class="card"><div class="stat"><div class="stat-label">训练日平均</div><div class="stat-value">{{ "%.1f"|format(recovery.train_avg) if recovery.train_avg else '--' }}</div></div></div>
-        <div class="card"><div class="stat"><div class="stat-label">休息日平均</div><div class="stat-value">{{ "%.1f"|format(recovery.rest_avg) if recovery.rest_avg else '--' }}</div></div></div>
-        <div class="card"><div class="stat"><div class="stat-label">今日 HRV</div><div class="stat-value">{{ "%.1f"|format(recovery.today_hrv) if recovery.today_hrv else '--' }}</div>
-            {% if recovery.vs_train_pct is not none %}
-            <div style="font-size:11px;margin-top:2px;"><span class="{% if recovery.vs_train_pct > 0 %}change-down{% else %}change-up{% endif %}">{{ "+" if recovery.vs_train_pct|abs > 0.1 else "" }}{{ "%.1f"|format(recovery.vs_train_pct) }}% vs 训练日</span></div>
-            {% endif %}
-        </div></div>
-    </div>
     <div class="chart-container"><canvas id="recoveryChart"></canvas></div>
 </div>
 
 <script>
 const recData = {{ recovery.chart_data | safe }};
 if (recData && recData.length > 0) {
-    const pointColors = recData.map(p => p.train_day ? '#e94560' : '#1a1a2e');
-    const pointRadii = recData.map(p => p.train_day ? 6 : 3);
+    const ptColors = recData.map(p => p.train_day ? '#e94560' : '#1a1a2e');
+    const ptRadii = recData.map(p => p.train_day ? 6 : 3);
     new Chart(document.getElementById('recoveryChart'), {
         type: 'line',
         data: {
@@ -224,25 +105,17 @@ if (recData && recData.length > 0) {
                 data: recData.map(p => p.value),
                 borderColor: '#e94560',
                 backgroundColor: 'rgba(233,69,96,0.1)',
-                tension: 0.3,
-                fill: true,
-                pointBackgroundColor: pointColors,
-                pointBorderColor: pointColors,
-                pointRadius: pointRadii,
+                tension: 0.3, fill: true,
+                pointBackgroundColor: ptColors,
+                pointBorderColor: ptColors,
+                pointRadius: ptRadii,
             }]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             plugins: {
                 legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        afterLabel: function(ctx) {
-                            return recData[ctx.dataIndex].train_day ? '📍 训练日' : '休息日';
-                        }
-                    }
-                }
+                tooltip: { callbacks: { afterLabel: function(ctx) { return recData[ctx.dataIndex].train_day ? '📍 训练日' : '休息日'; } } }
             },
             scales: { y: { beginAtZero: false } }
         }
@@ -251,83 +124,4 @@ if (recData && recData.length > 0) {
 </script>
 {% endif %}
 
-
-{% endif %}
-
-
-<!-- 健康评分 -->
-{% if health and health.score is not none %}
-<div class="card">
-    <div class="card-title">健康评分 (综合)</div>
-    <div style="display:flex;align-items:center;gap:24px;margin-bottom:16px;">
-        <div style="font-size:48px;font-weight:700;color:#1a1a2e;min-width:100px;text-align:center;">{{ health.score }}</div>
-        <div style="flex:1;font-size:13px;color:#666;">
-            <div style="display:flex;gap:16px;flex-wrap:wrap;">
-                {% for name, val in (health.score_components|default({})).items() %}
-                <div><span style="color:#1a1a2e;font-weight:600;">{{ name }}</span> {{ "%.1f"|format(val) }}/20</div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-    <div class="chart-container"><canvas id="scoreChart"></canvas></div>
-</div>
-<script>
-const scoreData = {{ health.score_trend | safe }};
-if (scoreData && scoreData.length > 0) {
-    new Chart(document.getElementById('scoreChart'), {
-        type: 'line',
-        data: {
-            labels: scoreData.map(d => d.date),
-            datasets: [{
-                label: '健康评分',
-                data: scoreData.map(d => d.value),
-                borderColor: '#2ecc71',
-                backgroundColor: 'rgba(46,204,113,0.1)',
-                tension: 0.3,
-                fill: true,
-                pointRadius: 2,
-                pointBackgroundColor: '#2ecc71',
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                y: { min: 0, max: 100, ticks: { stepSize: 20 } }
-            }
-        }
-    });
-}
-</script>
-{% endif %}
-
-
-{% if weight_trend %}
-<script>
-const wData = {{ weight_trend | tojson | safe }};
-if (wData.length > 0) {
-    new Chart(document.getElementById('weightChart'), {
-        type: 'line',
-        data: {
-            labels: wData.map(d => d.date),
-            datasets: [{
-                label: '体重 (kg)',
-                data: wData.map(d => d.value),
-                borderColor: '#1a1a2e',
-                tension: 0.3,
-                fill: false,
-                pointRadius: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: false } }
-        }
-    });
-}
-</script>
-{% endif %}
 {% endblock %}
