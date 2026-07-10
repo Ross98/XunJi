@@ -9,93 +9,62 @@
     <p style="font-size:16px;color:#666;margin-bottom:16px;">
         Apple Health 导出数据位于 <code>apple_health_export/导出.xml</code>
     </p>
-    <p style="font-size:14px;color:#999;margin-bottom:20px;">
-        首次导入可能需要 2-5 分钟（文件约 1.3GB）
-    </p>
-    <button onclick="startImport()" class="btn btn-primary" id="importBtn">
-        开始导入
-    </button>
+    <button onclick="startImport()" class="btn btn-primary" id="importBtn">开始导入</button>
     <div id="status" style="margin-top:16px;font-size:14px;color:#666;"></div>
 </div>
 {% else %}
 
-<!-- Import stats -->
-<div class="card" style="margin-bottom:16px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-size:14px;color:#666;">
-            已导入 {{ stats.total_records }} 条记录 / {{ stats.total_workouts }} 条训练
-        </span>
-        <small style="color:#999;">{{ today }}</small>
+<div class="card" style="margin-bottom:16px;padding:8px 16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#666;">
+        <span>共 {{ stats.total_records }} 条记录 · {{ stats.total_workouts }} 次训练</span>
+        <span>{{ today }}</span>
     </div>
 </div>
 
-<!-- Recovery metrics -->
+<!-- 3 恢复指标卡片 -->
 <div class="grid-3">
     <div class="card">
         <div class="stat">
-            <div class="stat-label">HRV (HRV)</div>
-            <div class="stat-value">
-                {% if hrv and hrv[-1] %}
-                    {{ "%.0f"|format(hrv[-1].value) }}
-                {% else %}--{% endif %}
-            </div>
+            <div class="stat-label">HRV</div>
+            <div class="stat-value">{{ "%.0f"|format(hrv[-1].value) if hrv else '--' }}</div>
             <div style="font-size:11px;color:#888;">
-                {% if hrv and hrv[-1] %}{{ hrv[-1].unit }}{% endif %}
+                {% if hrv %}{{ hrv[-1].unit }}, {{ hrv[-1].start_date[:10] }}{% endif %}
             </div>
         </div>
     </div>
     <div class="card">
         <div class="stat">
             <div class="stat-label">静息心率</div>
-            <div class="stat-value">
-                {% if resting_hr and resting_hr[-1] %}
-                    {{ "%.0f"|format(resting_hr[-1].value) }}
-                {% else %}--{% endif %}
-            </div>
+            <div class="stat-value">{{ "%.0f"|format(resting_hr[-1].value) if resting_hr else '--' }}</div>
             <div style="font-size:11px;color:#888;">
-                {% if resting_hr and resting_hr[-1] %}bpm{% endif %}
+                {% if resting_hr %}bpm, {{ resting_hr[-1].start_date[:10] }}{% endif %}
             </div>
         </div>
     </div>
     <div class="card">
         <div class="stat">
             <div class="stat-label">VO₂ Max</div>
-            <div class="stat-value">
-                {% if vo2 and vo2[-1] %}
-                    {{ "%.1f"|format(vo2[-1].value) }}
-                {% else %}--{% endif %}
-            </div>
+            <div class="stat-value">{{ "%.1f"|format(vo2[-1].value) if vo2 else '--' }}</div>
             <div style="font-size:11px;color:#888;">
-                {% if vo2 and vo2[-1] %}ml/kg/min{% endif %}
+                {% if vo2 %}ml/kg/min, {{ vo2[-1].start_date[:10] }}{% endif %}
             </div>
         </div>
     </div>
 </div>
 
-<!-- Body metrics -->
-{% if body_mass or body_fat %}
-<div class="card" style="margin-top:16px;">
-    <div class="card-title">Apple Health 身体数据</div>
+<!-- 身体数据 -->
+{% if body_rows %}
+<div class="card">
+    <div class="card-title">身体数据 (最近{{ body_row_count }}天)</div>
     <div class="data-table-wrap">
-        <table class="data-table">
-            <thead>
-                <tr><th>日期</th><th>体重 (kg)</th><th>体脂率 (%)</th></tr>
-            </thead>
+        <table class="data-table" style="font-size:13px;">
+            <thead><tr><th>日期</th><th>体重 (kg)</th><th>体脂率 (%)</th></tr></thead>
             <tbody>
-                {% set dates = [] %}
-                {% for r in body_mass %}{% if r.start_date[:10] not in dates %}{% set _ = dates.append(r.start_date[:10]) %}{% endif %}{% endfor %}
-                {% for r in body_fat %}{% if r.start_date[:10] not in dates %}{% set _ = dates.append(r.start_date[:10]) %}{% endif %}{% endfor %}
-                {% for d in dates[:20] %}
+                {% for row in body_rows %}
                 <tr>
-                    <td>{{ d[5:] }}</td>
-                    <td>
-                        {% set w = body_mass|selectattr('start_date', 'equalto', d+'T00:00:00+08:00')|first %}
-                        {{ w.value if w else '--' }}
-                    </td>
-                    <td>
-                        {% set bf = body_fat|selectattr('start_date', 'equalto', d+'T00:00:00+08:00')|first %}
-                        {{ bf.value if bf else '--' }}
-                    </td>
+                    <td>{{ row.date[5:] }}</td>
+                    <td>{{ row.weight if row.weight else '--' }}</td>
+                    <td>{{ row.bodyfat if row.bodyfat else '--' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -104,23 +73,19 @@
 </div>
 {% endif %}
 
-<!-- Recent workouts -->
+<!-- 训练记录 -->
 {% if workouts %}
-<div class="card" style="margin-top:16px;">
-    <div class="card-title">Apple Watch 训练 (最近50条)</div>
+<div class="card">
+    <div class="card-title">Apple Watch 训练 (最近 {{ workouts|length }})</div>
     <div class="data-table-wrap">
-        <table class="data-table">
-            <thead>
-                <tr><th>日期</th><th>类型</th><th>时长</th><th>距离</th><th>热量</th></tr>
-            </thead>
+        <table class="data-table" style="font-size:13px;">
+            <thead><tr><th>日期</th><th>类型</th><th>时长 (min)</th></tr></thead>
             <tbody>
                 {% for w in workouts %}
                 <tr>
                     <td>{{ w.start_date[:10] }}</td>
                     <td>{{ w.workout_activity_type.replace('HKWorkoutActivityType','') }}</td>
-                    <td>{{ "%.0f"|format(w.duration) if w.duration else '--' }} {{ w.duration_unit }}</td>
-                    <td>{{ "%.2f"|format(w.total_distance) if w.total_distance else '--' }} {{ w.total_distance_unit }}</td>
-                    <td>{{ "%.0f"|format(w.total_energy_burned) if w.total_energy_burned else '--' }}</td>
+                    <td>{{ "%.0f"|format(w.duration) if w.duration else '--' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -138,7 +103,6 @@ async function startImport() {
     btn.disabled = true;
     btn.textContent = '导入中 (约 2-5 分钟)...';
     status.textContent = '解析中...';
-
     try {
         const resp = await fetch('/health/import', { method: 'POST' });
         const result = await resp.json();
