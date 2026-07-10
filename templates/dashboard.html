@@ -24,6 +24,55 @@
     </div>
 </div>
 
+
+<!-- 健康评分 -->
+{% if health and health.score is not none %}
+<div class="card">
+    <div class="card-title">健康评分 (综合)</div>
+    <div style="display:flex;align-items:center;gap:24px;margin-bottom:16px;">
+        <div style="font-size:48px;font-weight:700;color:#1a1a2e;min-width:100px;text-align:center;">{{ health.score }}</div>
+        <div style="flex:1;font-size:13px;color:#666;">
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                {% for name, val in (health.score_components|default({})).items() %}
+                <div><span style="color:#1a1a2e;font-weight:600;">{{ name }}</span> {{ "%.1f"|format(val) }}/20</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="chart-container"><canvas id="scoreChart"></canvas></div>
+</div>
+<script>
+const scoreData = {{ health.score_trend | safe }};
+if (scoreData && scoreData.length > 0) {
+    new Chart(document.getElementById('scoreChart'), {
+        type: 'line',
+        data: {
+            labels: scoreData.map(d => d.date),
+            datasets: [{
+                label: '健康评分',
+                data: scoreData.map(d => d.value),
+                borderColor: '#2ecc71',
+                backgroundColor: 'rgba(46,204,113,0.1)',
+                tension: 0.3,
+                fill: true,
+                pointRadius: 2,
+                pointBackgroundColor: '#2ecc71',
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { min: 0, max: 100, ticks: { stepSize: 20 } }
+            }
+        }
+    });
+}
+</script>
+{% endif %}
+
+
 {% if weight_trend %}
 <div class="card">
     <div class="card-title">体重趋势（最近90天）</div>
@@ -204,6 +253,55 @@ if (recData && recData.length > 0) {
 
 
 {% endif %}
+
+
+<!-- 健康评分 -->
+{% if health and health.score is not none %}
+<div class="card">
+    <div class="card-title">健康评分 (综合)</div>
+    <div style="display:flex;align-items:center;gap:24px;margin-bottom:16px;">
+        <div style="font-size:48px;font-weight:700;color:#1a1a2e;min-width:100px;text-align:center;">{{ health.score }}</div>
+        <div style="flex:1;font-size:13px;color:#666;">
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                {% for name, val in (health.score_components|default({})).items() %}
+                <div><span style="color:#1a1a2e;font-weight:600;">{{ name }}</span> {{ "%.1f"|format(val) }}/20</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="chart-container"><canvas id="scoreChart"></canvas></div>
+</div>
+<script>
+const scoreData = {{ health.score_trend | safe }};
+if (scoreData && scoreData.length > 0) {
+    new Chart(document.getElementById('scoreChart'), {
+        type: 'line',
+        data: {
+            labels: scoreData.map(d => d.date),
+            datasets: [{
+                label: '健康评分',
+                data: scoreData.map(d => d.value),
+                borderColor: '#2ecc71',
+                backgroundColor: 'rgba(46,204,113,0.1)',
+                tension: 0.3,
+                fill: true,
+                pointRadius: 2,
+                pointBackgroundColor: '#2ecc71',
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { min: 0, max: 100, ticks: { stepSize: 20 } }
+            }
+        }
+    });
+}
+</script>
+{% endif %}
+
 
 {% if weight_trend %}
 <script>
