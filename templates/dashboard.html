@@ -3,99 +3,221 @@
 {% block content %}
 <h1>总览仪表盘</h1>
 
-<div class="grid-3">
-    <div class="card">
-        <div class="stat">
-            <div class="stat-value">{{ summary.total_days if summary.total_days > 0 else "--" }}</div>
-            <div class="stat-label">昨日训练数</div>
+<div class="sortable-card" data-section="sleep">
+{% if health and health.has_data and health.sleep_last %}
+{% set sl = health.sleep_last %}
+{% set deep = sl.get('AsleepDeep',0) %}
+{% set rem = sl.get('AsleepREM',0) %}
+{% set core = sl.get('AsleepCore',0) %}
+{% set awake = sl.get('Awake',0) %}
+{% set st = deep + rem + core + sl.get('AsleepUnspecified',0) %}
+{% set inbed = sl.get('InBed',0) %}
+<div class="card">
+    <div class="card-title">昨晚睡眠 · {{ sl.date }}</div>
+    <div style="display:flex;align-items:center;gap:16px;">
+        <div style="flex:0 0 80px;text-align:center;">
+            <div style="font-size:28px;font-weight:700;">{{ (st / 60)|int }}<span style="font-size:14px;font-weight:400;color:#888;">h</span>{{ '%.0f'|format(st % 60) }}<span style="font-size:14px;font-weight:400;color:#888;">m</span></div>
+            <div style="font-size:11px;color:#888;">总睡眠</div>
         </div>
-    </div>
-    <div class="card">
-        <div class="stat">
-            <div class="stat-value">{{ "%.0f"|format(today_calories) if today_calories else "--" }}</div>
-            <div class="stat-label">昨日热量 (kcal)</div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="stat">
-            <div class="stat-value">{{ latest_weight }}</div>
-            <div class="stat-label">最新体重 (kg)</div>
+        <div style="flex:1;">
+            <div style="height:24px;display:flex;border-radius:6px;overflow:hidden;gap:2px;">
+                {% if deep > 0 %}<div style="flex:{{ deep }};background:#1a237e;min-width:6px;" title="深睡 {{ (deep/60)|int }}h{{ '%.0f'|format(deep%60) }}"></div>{% endif %}
+                {% if rem > 0 %}<div style="flex:{{ rem }};background:#7c4dff;min-width:6px;" title="REM {{ (rem/60)|int }}h{{ '%.0f'|format(rem%60) }}"></div>{% endif %}
+                {% if core > 0 %}<div style="flex:{{ core }};background:#64b5f6;min-width:6px;" title="浅睡 {{ (core/60)|int }}h{{ '%.0f'|format(core%60) }}"></div>{% endif %}
+                {% if awake > 0 %}<div style="flex:{{ awake }};background:#e0e0e0;min-width:4px;" title="清醒 {{ (awake/60)|int }}h{{ '%.0f'|format(awake%60) }}"></div>{% endif %}
+                {% if inbed > 0 and inbed > st %}<div style="flex:{{ inbed - st }};background:#f5f5f5;" title="床上清醒"></div>{% endif %}
+            </div>
+            <div style="display:flex;gap:12px;font-size:10px;color:#888;margin-top:4px;flex-wrap:wrap;">
+                {% if deep > 0 %}<span>🟦 深睡 {{ (deep/60)|int }}h{{ '%.0f'|format(deep%60) }}</span>{% endif %}
+                {% if rem > 0 %}<span>🟪 REM {{ (rem/60)|int }}h{{ '%.0f'|format(rem%60) }}</span>{% endif %}
+                {% if core > 0 %}<span>🟦 浅睡 {{ (core/60)|int }}h{{ '%.0f'|format(core%60) }}</span>{% endif %}
+                {% if awake > 0 %}<span>⬜ 清醒 {{ (awake/60)|int }}h{{ '%.0f'|format(awake%60) }}</span>{% endif %}
+            </div>
         </div>
     </div>
 </div>
+{% endif %}
+</div> {# /sortable-card sleep #}
 
+<div class="sortable-card" data-section="stats">
+<div class="grid-3">
+    <div class="card"><div class="stat">
+        <div class="stat-value">{{ summary.total_days if summary.total_days > 0 else "--" }}</div>
+        <div class="stat-label">昨日训练</div>
+        {% if total_sets > 0 %}
+        <div style="font-size:11px;color:#888;margin-top:2px;">{{ total_sets }} 组</div>
+        {% endif %}
+        {% if train_type_str %}
+        <div style="font-size:10px;color:#aaa;margin-top:1px;">{{ train_type_str }}</div>
+        {% endif %}
+    </div></div>
+    <div class="card"><div class="stat">
+        <div class="stat-value">{{ "%.0f"|format(today_calories) if today_calories else "--" }}</div>
+        <div class="stat-label">昨日消耗 (kcal)</div>
+    </div></div>
+    <div class="card"><div class="stat">
+        <div class="stat-value">{{ latest_weight }} {% if weight_chg7 is not none %}<span style="font-size:14px;font-weight:400;{% if weight_chg7 > 0 %}color:#e53935{% elif weight_chg7 < 0 %}color:#388e3c{% else %}color:#888{% endif %}">{% if weight_chg7 > 0 %}↑{% elif weight_chg7 < 0 %}↓{% endif %}{{ weight_chg7|abs }}{% endif %}</span></div>
+        <div class="stat-label">最新体重 (kg)</div>
+    </div></div>
+</div>
+</div>
 
-
-<!-- Apple Health 区域 -->
 {% if health and health.has_data %}
-<h2 style="margin-top:24px;font-size:18px;">健康数据 (Apple Health)</h2>
 
-<!-- 恢复指标 -->
+<div class="sortable-card" data-section="activity">
 <div class="grid-3">
-    <div class="card"><div class="stat"><div class="stat-label">HRV</div><div class="stat-value">{{ "%.0f"|format(health.latest_hrv) if health.latest_hrv else '--' }} <span style="font-size:14px;color:#888;">ms</span></div><div style="color:#888;font-size:11px;">{{ "ms · " + health.hrv_date if health.hrv_date else '' }}</div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">静息心率</div><div class="stat-value">{{ "%.0f"|format(health.latest_rhr) if health.latest_rhr else '--' }} <span style="font-size:14px;color:#888;">bpm</span></div><div style="color:#888;font-size:11px;">{{ "bpm · " + health.rhr_date if health.rhr_date else '' }}</div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">VO₂ Max</div><div class="stat-value">{{ "%.1f"|format(health.latest_vo2) if health.latest_vo2 else '--' }} <span style="font-size:14px;color:#888;">ml/kg/min</span></div><div style="color:#888;font-size:11px;">{{ "ml/kg/min · " + health.vo2_date if health.vo2_date else '' }}</div></div></div>
+    <div class="card"><div class="stat">
+        {% set step_pct = (health.today_steps / health.step_avg * 100)|int if health.step_avg else 0 %}
+        <div class="stat-value">{{ health.today_steps }} <span style="font-size:14px;font-weight:400;{% if step_pct >= 100 %}color:#e53935{% else %}color:#388e3c{% endif %}">{{ step_pct }}%</span></div>
+        <div class="stat-label">昨日步数</div>
+        <div style="height:4px;background:#eee;border-radius:2px;margin:6px 0;overflow:hidden;">
+            <div style="height:100%;width:{{ step_pct }}%;background:#4caf50;border-radius:2px;"></div>
+        </div>
+        <div style="font-size:10px;color:#999;">日均 {{ health.step_avg }} 步</div>
+    </div></div>
+    <div class="card"><div class="stat">
+        {% set ex_pct = (health.today_exercise / health.ex_avg * 100)|int if health.ex_avg else 0 %}
+        <div class="stat-value">{{ health.today_exercise }} <span style="font-size:14px;font-weight:400;{% if ex_pct >= 100 %}color:#e53935{% else %}color:#388e3c{% endif %}">{{ ex_pct }}%</span></div>
+        <div class="stat-label">昨日活动</div>
+        <div style="height:4px;background:#eee;border-radius:2px;margin:6px 0;overflow:hidden;">
+            <div style="height:100%;width:{{ ex_pct }}%;background:#2196f3;border-radius:2px;"></div>
+        </div>
+        <div style="font-size:10px;color:#999;">日均 {{ health.ex_avg }} min</div>
+    </div></div>
+    <div class="card"><div class="stat">
+        {% set stand_pct = (health.today_stand / health.stand_avg * 100)|int if health.stand_avg else 0 %}
+        <div class="stat-value">{{ health.today_stand }} <span style="font-size:14px;font-weight:400;{% if stand_pct >= 100 %}color:#e53935{% else %}color:#388e3c{% endif %}">{{ stand_pct }}%</span></div>
+        <div class="stat-label">昨日站立</div>
+        <div style="height:4px;background:#eee;border-radius:2px;margin:6px 0;overflow:hidden;">
+            <div style="height:100%;width:{{ stand_pct }}%;background:#ff9800;border-radius:2px;"></div>
+        </div>
+        <div style="font-size:10px;color:#999;">日均 {{ health.stand_avg }} min</div>
+    </div></div>
 </div>
-<!-- 今日活动 -->
-<div class="grid-3">
-    <div class="card"><div class="stat"><div class="stat-label">昨日步数</div><div class="stat-value">{{ health.today_steps }}</div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">昨日活动</div><div class="stat-value">{{ health.today_exercise }} <span style="font-size:14px;color:#888;">min</span></div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">昨日站立</div><div class="stat-value">{{ health.today_stand }} <span style="font-size:14px;color:#888;">min</span></div></div></div>
 </div>
 
-<!-- 趋势图 独立 -->
-<div class="card">
-    <div class="card-title">HRV 趋势 (近90天)</div>
-    <div class="chart-container"><canvas id="hrvChart"></canvas></div>
+<div class="sortable-card" data-section="trends">
+<div class="card" style="padding:12px 16px;">
+<div style="display:flex;gap:16px;">
+    <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:baseline;gap:4px;font-size:13px;margin-bottom:2px;">
+            <span style="font-size:22px;font-weight:700;">{{ "%.0f"|format(health.latest_hrv) }}</span>
+            <span style="font-size:12px;color:#666;">ms</span>
+            {%- if health.hrv_chg7 is not none %}
+            <span style="font-size:11px;font-weight:600;color:{% if health.hrv_chg7 > 0 %}#388e3c{% elif health.hrv_chg7 < 0 %}#e53935{% else %}#888{% endif %}">{% if health.hrv_chg7 > 0 %}↑{% elif health.hrv_chg7 < 0 %}↓{% endif %}{{ health.hrv_chg7|abs }}</span>
+            {% endif %}
+            <span style="font-size:11px;color:#999;">HRV</span>
+        </div>
+        <div style="height:80px;"><canvas id="hrvChart"></canvas></div>
+        <div style="height:50px;"><canvas id="hrvMaChart"></canvas></div>
+    </div>
+    <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:baseline;gap:4px;font-size:13px;margin-bottom:2px;">
+            <span style="font-size:22px;font-weight:700;">{{ "%.0f"|format(health.latest_rhr) }}</span>
+            <span style="font-size:12px;color:#666;">bpm</span>
+            {%- if health.rhr_chg7 is not none %}
+            <span style="font-size:11px;font-weight:600;color:{% if health.rhr_chg7 < 0 %}#388e3c{% elif health.rhr_chg7 > 0 %}#e53935{% else %}#888{% endif %}">{% if health.rhr_chg7 < 0 %}↓{% elif health.rhr_chg7 > 0 %}↑{% endif %}{{ health.rhr_chg7|abs }}</span>
+            {% endif %}
+            <span style="font-size:11px;color:#999;">RHR</span>
+        </div>
+        <div style="height:80px;"><canvas id="rhrChart"></canvas></div>
+        <div style="height:50px;"><canvas id="rhrMaChart"></canvas></div>
+    </div>
+    <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:baseline;gap:4px;font-size:13px;margin-bottom:2px;">
+            <span style="font-size:22px;font-weight:700;">{{ "%.1f"|format(health.latest_vo2) }}</span>
+            {%- if health.vo2_chg7 is not none %}
+            <span style="font-size:11px;font-weight:600;color:{% if health.vo2_chg7 > 0 %}#388e3c{% elif health.vo2_chg7 < 0 %}#e53935{% else %}#888{% endif %}">{% if health.vo2_chg7 > 0 %}↑{% elif health.vo2_chg7 < 0 %}↓{% endif %}{{ health.vo2_chg7|abs }}</span>
+            {% endif %}
+            <span style="font-size:11px;color:#999;">VO₂</span>
+        </div>
+        <div style="height:80px;"><canvas id="vo2Chart"></canvas></div>
+        <div style="height:50px;"><canvas id="vo2MaChart"></canvas></div>
+    </div>
 </div>
-<div class="card">
-    <div class="card-title">静息心率 趋势 (近90天)</div>
-    <div class="chart-container"><canvas id="rhrChart"></canvas></div>
 </div>
-<div class="card">
-    <div class="card-title">VO₂ Max 趋势 (近90天)</div>
-    <div class="chart-container"><canvas id="vo2Chart"></canvas></div>
 </div>
 
 <script>
 const HRV_DATA = {{ health.hrv_trend | safe }};
 const RHR_DATA = {{ health.rhr_trend | safe }};
 const VO2_DATA = {{ health.vo2_trend | safe }};
-function mkChart(id, data, label, color) {
+const HRV_MA7 = {{ health.hrv_ma7 | safe }};
+const RHR_MA7 = {{ health.rhr_ma7 | safe }};
+const VO2_MA7 = {{ health.vo2_ma7 | safe }};
+function mkLine(id, data, color, isMa) {
     if (!data || data.length === 0) return;
     new Chart(document.getElementById(id), {
         type: 'line',
-        data: { labels: data.map(d => d.date), datasets: [{ label: label, data: data.map(d => d.value), borderColor: color, backgroundColor: color.replace(')', ',0.1)').replace('rgb', 'rgba'), tension: 0.3, fill: true, pointRadius: 2 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: false } } }
+        data: {
+            labels: data.map(d => d.date),
+            datasets: [{ data: data.map(d => d.value), borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: isMa ? 1 : 1.5, tension: 0.2, fill: false }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            scales: {
+                x: { display: true, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { maxTicksLimit: isMa ? 4 : 6, font: { size: isMa ? 8 : 9 }, color: '#bbb' } },
+                y: { display: true, grid: { color: 'rgba(0,0,0,0.06)' }, ticks: { font: { size: isMa ? 8 : 9 }, color: '#bbb' } }
+            }
+        }
     });
 }
 document.addEventListener('DOMContentLoaded', function() {
-    mkChart('hrvChart', HRV_DATA, 'HRV (ms)', '#e94560');
-    mkChart('rhrChart', RHR_DATA, '静息心率 (bpm)', '#3498db');
-    mkChart('vo2Chart', VO2_DATA, 'VO₂ Max (ml/kg/min)', '#2ecc71');
+    mkLine('hrvChart', HRV_DATA, '#e94560', false);
+    mkLine('rhrChart', RHR_DATA, '#3498db', false);
+    mkLine('vo2Chart', VO2_DATA, '#2ecc71', false);
+    if (HRV_MA7 && HRV_MA7.some(v => v !== null)) mkLine('hrvMaChart', HRV_DATA.map((d,i) => ({date:d.date, value:HRV_MA7[i]})).filter(d => d.value !== null), '#b8364d', true);
+    if (RHR_MA7 && RHR_MA7.some(v => v !== null)) mkLine('rhrMaChart', RHR_DATA.map((d,i) => ({date:d.date, value:RHR_MA7[i]})).filter(d => d.value !== null), '#2a7bb5', true);
+    if (VO2_MA7 && VO2_MA7.some(v => v !== null)) mkLine('vo2MaChart', VO2_DATA.map((d,i) => ({date:d.date, value:VO2_MA7[i]})).filter(d => d.value !== null), '#239b56', true);
 });
 </script>
 {% endif %}
+
 {% if recovery and recovery.chart_data %}
+<div class="sortable-card" data-section="recovery">
 <div class="grid-3">
-    <div class="card"><div class="stat"><div class="stat-label">训练日平均</div><div class="stat-value">{{ "%.1f"|format(recovery.train_avg) if recovery.train_avg else '--' }}</div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">休息日平均</div><div class="stat-value">{{ "%.1f"|format(recovery.rest_avg) if recovery.rest_avg else '--' }}</div></div></div>
-    <div class="card"><div class="stat"><div class="stat-label">最新 HRV</div><div class="stat-value">{{ "%.1f"|format(recovery.today_hrv) if recovery.today_hrv else '--' }}</div>
+    <div class="card"><div class="stat">
+        <div class="stat-value" style="color:#5a6a7a;">{{ "%.0f"|format(recovery.train_avg) if recovery.train_avg else '--' }}</div>
+        <div class="stat-label">训练日 HRV (30d)</div>
+        <div style="font-size:10px;color:#9aaaba;margin-top:2px;">运动后偏低 · 正常</div>
+    </div></div>
+    <div class="card"><div class="stat">
+        <div class="stat-value">{{ "%.0f"|format(recovery.rest_avg) if recovery.rest_avg else '--' }} {% if recovery.rest_avg and recovery.train_avg %}<span style="font-size:13px;font-weight:400;color:#388e3c;">↑{{ ((recovery.rest_avg / recovery.train_avg - 1) * 100)|round|int }}%</span>{% endif %}</div>
+        <div class="stat-label">休息日 HRV (30d)</div>
+        <div style="font-size:10px;color:#999;margin-top:2px;">高于训练日 {{ ((recovery.rest_avg / recovery.train_avg - 1) * 100)|round|int if recovery.rest_avg and recovery.train_avg else 0 }}%</div>
+    </div></div>
+    <div class="card"><div class="stat">
+        <div class="stat-value">{{ "%.0f"|format(recovery.today_hrv) if recovery.today_hrv else '--' }}</div>
+        <div class="stat-label">最新 HRV (30d)</div>
         {% if recovery.vs_train_pct is not none %}
-        <div style="font-size:11px;margin-top:2px;"><span class="{% if recovery.vs_train_pct > 0 %}change-down{% else %}change-up{% endif %}">{{ "+" if recovery.vs_train_pct|abs > 0.1 else "" }}{{ "%.1f"|format(recovery.vs_train_pct) }}% vs 训练日</span></div>
+        <div style="font-size:11px;margin-top:2px;">
+            <span style="{% if recovery.today_hrv and recovery.rest_avg and recovery.today_hrv >= recovery.rest_avg %}color:#388e3c{% else %}color:#e53935{% endif %}">
+                {% if recovery.today_hrv and recovery.rest_avg and recovery.today_hrv >= recovery.rest_avg %}🟢{% else %}🔴{% endif %}
+                {{ "+" if recovery.vs_train_pct|abs > 0.1 else "" }}{{ "%.0f"|format(recovery.vs_train_pct) }}%
+            </span>
+            <span style="color:#999;">vs 训练日</span>
+        </div>
         {% endif %}
     </div></div>
 </div>
 <div class="card">
-    <div class="card-title">恢复分析 (近14天 HRV)</div>
+    <div class="card-title">HRV 恢复分析 (30d)</div>
     <div class="chart-container"><canvas id="recoveryChart"></canvas></div>
+</div>
 </div>
 
 <script>
 const recData = {{ recovery.chart_data | safe }};
 if (recData && recData.length > 0) {
-    const ptColors = recData.map(p => p.train_day ? '#e94560' : '#1a1a2e');
-    const ptRadii = recData.map(p => p.train_day ? 6 : 3);
+    const trainRef = {{ recovery.train_avg }};
+    const restRef = {{ recovery.rest_avg }};
+    const ptColors = recData.map(p => {
+        const v = p.value;
+        if (restRef && v >= restRef) return '#388e3c';
+        if (trainRef && v >= trainRef) return '#9e9e9e';
+        return '#e53935';
+    });
     new Chart(document.getElementById('recoveryChart'), {
         type: 'line',
         data: {
@@ -103,25 +225,95 @@ if (recData && recData.length > 0) {
             datasets: [{
                 label: 'HRV (ms)',
                 data: recData.map(p => p.value),
-                borderColor: '#e94560',
-                backgroundColor: 'rgba(233,69,96,0.1)',
-                tension: 0.3, fill: true,
+                borderColor: '#1a1a2e',
+                backgroundColor: 'transparent',
+                tension: 0.2, fill: false,
                 pointBackgroundColor: ptColors,
                 pointBorderColor: ptColors,
-                pointRadius: ptRadii,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                borderWidth: 1.5,
             }]
         },
         options: {
             responsive: true, maintainAspectRatio: false,
             plugins: {
                 legend: { display: false },
-                tooltip: { callbacks: { afterLabel: function(ctx) { return recData[ctx.dataIndex].train_day ? '📍 训练日' : '休息日'; } } }
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) { return ctx.parsed.y + ' ms'; },
+                        afterLabel: function(ctx) {
+                            const p = recData[ctx.dataIndex];
+                            let s = p.train_day ? '📍 训练日' : '休息日';
+                            if (restRef && p.value >= restRef) s += ' 🟢';
+                            else if (trainRef && p.value >= trainRef) s += ' ⚪';
+                            else s += ' 🔴';
+                            return s;
+                        }
+                    }
+                }
             },
-            scales: { y: { beginAtZero: false } }
-        }
+            scales: {
+                x: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { maxTicksLimit: 8, font: { size: 10 }, color: '#999' } },
+                y: { grid: { color: 'rgba(0,0,0,0.06)' }, ticks: { font: { size: 10 }, color: '#999' } }
+            }
+        },
+        plugins: [{
+            afterDraw: function(chart) {
+                const ctx = chart.ctx;
+                const yScale = chart.scales.y;
+                const xAxis = chart.scales.x;
+                function drawRefLine(label, value, color, dash) {
+                    if (!value || value <= yScale.min || value >= yScale.max) return;
+                    const y = yScale.getPixelForValue(value);
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.setLineDash(dash || [4,4]);
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 1;
+                    ctx.moveTo(xAxis.left, y);
+                    ctx.lineTo(xAxis.right, y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = color;
+                    ctx.font = '10px sans-serif';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(label + ' ' + value, xAxis.right - 4, y - 4);
+                    ctx.restore();
+                }
+                drawRefLine('休息日', restRef, '#388e3c', [4,3]);
+                drawRefLine('训练日', trainRef, '#e53935', [4,3]);
+            }
+        }]
     });
 }
 </script>
 {% endif %}
+</div> {# /sortable-card recovery #}
+
+<hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
+<div style="display:flex;gap:16px;font-size:12px;color:#888;flex-wrap:wrap;justify-content:center;">
+    <span>🟢 <strong>HRV</strong> ↑好转 · <strong>RHR</strong> ↓好转 · <strong>VO₂</strong> ↑好转</span>
+    <span>🔴 <strong>HRV</strong> ↓恶化 · <strong>RHR</strong> ↑恶化 · <strong>VO₂</strong> ↓恶化</span>
+    <span style="color:#bbb;">箭头=周变化 vs 7天前</span>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+<style>
+.sortable-card { margin-bottom: 16px; }
+.dashboard-sortable-ghost { opacity: 0.3; }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const saved = localStorage.getItem('dashboard_layout_v3');
+    if (saved) {
+        try {
+            localStorage.removeItem('dashboard_layout_v3');
+            localStorage.removeItem('dashboard_layout_v2');
+            localStorage.removeItem('dashboard_layout');
+        } catch(e) {}
+    }
+});
+</script>
 
 {% endblock %}

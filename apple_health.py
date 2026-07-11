@@ -51,48 +51,87 @@ def _init_db():
                 created_at       TEXT DEFAULT (datetime('now')),
                 PRIMARY KEY (workout_activity_type, start_date)
             );
+            CREATE TABLE IF NOT EXISTS health_sleep (
+                type        TEXT NOT NULL,
+                start_date  TEXT NOT NULL,
+                end_date    TEXT NOT NULL,
+                source_name TEXT,
+                created_at  TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (type, start_date)
+            );
             CREATE INDEX IF NOT EXISTS idx_records_type ON health_records(type);
             CREATE INDEX IF NOT EXISTS idx_records_date ON health_records(start_date);
             CREATE INDEX IF NOT EXISTS idx_workouts_type ON health_workouts(workout_activity_type);
+            CREATE INDEX IF NOT EXISTS idx_sleep_type ON health_sleep(type);
         """)
 
 
 # ---------- 导入 ----------
 
 def import_all(progress_callback=None, batch_size=5000):
-    """流式导入导出.xml 全部数据到 SQLite"""
+    """流式导入导出.xml 全部数据到 SQLite (增量: 跳过已有记录)"""
     _init_db()
     xml_path = str(EXPORT_XML)
     if not Path(xml_path).exists():
         raise FileNotFoundError(f"未找到 Apple Health 导出文件: {xml_path}")
 
+    # 获取已有数据的最新时间戳，跳过旧记录
+    with _conn() as conn:
+        last_rec = conn.execute("SELECT MAX(start_date) FROM health_records").fetchone()[0]
+        last_wo = conn.execute("SELECT MAX(start_date) FROM health_workouts").fetchone()[0]
+        last_sleep = conn.execute("SELECT MAX(start_date) FROM health_sleep").fetchone()[0]
+
+    # 已知最大 start_date，只解析更新的
+    max_known = max([v for v in (last_rec, last_wo, last_sleep) if v] or ["1970-01-01"])
+    # 清理历史缓存标记
+    IMPORTER_CACHE = {}
+
     total = 0
+    skipped = 0
     record_batch = []
     workout_batch = []
+    sleep_batch = []
 
     for event, elem in ET.iterparse(xml_path, events=("end",)):
         if elem.tag == "Record":
-            rec = _parse_record(elem)
-            if rec:
-                record_batch.append(rec)
+            t = elem.get("type", "")
+            sd = elem.get("startDate", "")
+            if sd <= max_known:
+                elem.clear()
+                skipped += 1
+                continue
+            if t == "HKCategoryTypeIdentifierSleepAnalysis":
+                rec = _parse_sleep(elem)
+                if rec:
+                    sleep_batch.append(rec)
+            else:
+                rec = _parse_record(elem)
+                if rec:
+                    record_batch.append(rec)
         elif elem.tag == "Workout":
+            sd = elem.get("startDate", "")
+            if sd <= max_known:
+                elem.clear()
+                skipped += 1
+                continue
             wo = _parse_workout(elem)
             if wo:
                 workout_batch.append(wo)
 
         elem.clear()
 
-        if len(record_batch) >= batch_size or len(workout_batch) >= batch_size:
-            total += len(record_batch) + len(workout_batch)
-            _bulk_insert(record_batch, workout_batch)
+        if len(record_batch) >= batch_size or len(workout_batch) >= batch_size or len(sleep_batch) >= batch_size:
+            total += len(record_batch) + len(workout_batch) + len(sleep_batch)
+            _bulk_insert(record_batch, workout_batch, sleep_batch)
             record_batch.clear()
             workout_batch.clear()
+            sleep_batch.clear()
             if progress_callback:
                 progress_callback(total)
 
-    if record_batch or workout_batch:
-        total += len(record_batch) + len(workout_batch)
-        _bulk_insert(record_batch, workout_batch)
+    if record_batch or workout_batch or sleep_batch:
+        total += len(record_batch) + len(workout_batch) + len(sleep_batch)
+        _bulk_insert(record_batch, workout_batch, sleep_batch)
 
     return total
 
@@ -132,7 +171,17 @@ def _parse_workout(elem):
         return None
 
 
-def _bulk_insert(records, workouts):
+def _parse_sleep(elem):
+    """解析睡眠 CategoryRecord。value 是 HKCategoryValueSleepAnalysis* 枚举。"""
+    return {
+        "type": elem.get("value", ""),
+        "start_date": elem.get("startDate", ""),
+        "end_date": elem.get("endDate", ""),
+        "source_name": elem.get("sourceName", ""),
+    }
+
+
+def _bulk_insert(records, workouts, sleep_records=None):
     with _conn() as conn:
         if records:
             conn.executemany(
@@ -155,6 +204,13 @@ def _bulk_insert(records, workouts):
                            :total_energy_burned, :total_energy_burned_unit,
                            :source_name)""",
                 workouts,
+            )
+        if sleep_records:
+            conn.executemany(
+                """INSERT OR IGNORE INTO health_sleep
+                   (type, start_date, end_date, source_name)
+                   VALUES (:type, :start_date, :end_date, :source_name)""",
+                sleep_records,
             )
 
 
@@ -237,9 +293,13 @@ def get_import_count() -> dict:
         workouts = conn.execute(
             "SELECT workout_activity_type as type, COUNT(*) as cnt FROM health_workouts GROUP BY workout_activity_type ORDER BY cnt DESC"
         ).fetchall()
+        sleep_counts = conn.execute(
+            "SELECT type, COUNT(*) as cnt FROM health_sleep GROUP BY type ORDER BY cnt DESC"
+        ).fetchall()
     return {
         "records": [dict(r) for r in records],
         "workouts": [dict(r) for r in workouts],
+        "sleep": [dict(r) for r in sleep_counts],
         "total_records": sum(r["cnt"] for r in records),
         "total_workouts": sum(r["cnt"] for r in workouts),
     }
@@ -267,3 +327,67 @@ def query_records_desc(type_filter: str = None,
     with _conn() as conn:
         rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
+
+
+def query_sleep(start: str = None,
+                end: str = None,
+                limit: int = None) -> list[dict]:
+    """查询睡眠记录, 按日期倒序。"""
+    sql = "SELECT * FROM health_sleep WHERE 1=1"
+    params = []
+    if start:
+        sql += " AND substr(start_date,1,10) >= ?"
+        params.append(start)
+    if end:
+        sql += " AND substr(start_date,1,10) <= ?"
+        params.append(end)
+    sql += " ORDER BY start_date DESC"
+    if limit:
+        sql += f" LIMIT {limit}"
+
+    with _conn() as conn:
+        rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_sleep_summary(start: str = None, end: str = None) -> list[dict]:
+    """按天汇总睡眠各阶段时长 (分钟)。Python 计算 (SQLite julianday 不支持 +0800 时区)。"""
+    from datetime import datetime
+
+    sql = "SELECT * FROM health_sleep WHERE 1=1"
+    params = []
+    if start:
+        sql += " AND substr(start_date,1,10) >= ?"
+        params.append(start)
+    if end:
+        sql += " AND substr(end_date,1,10) <= ?"
+        params.append(end)
+    sql += " ORDER BY start_date"
+
+    def _parse_dt(s: str) -> datetime:
+        # "2026-07-10 07:19:15 +0800" -> datetime
+        return datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
+
+    with _conn() as conn:
+        rows = conn.execute(sql, params).fetchall()
+
+    by_date = {}
+    for r in rows:
+        try:
+            start_dt = _parse_dt(r["start_date"])
+            end_dt = _parse_dt(r["end_date"])
+            minutes = (end_dt - start_dt).total_seconds() / 60
+            if minutes < 0:
+                continue
+        except (ValueError, TypeError):
+            continue
+
+        # 归类到开始日期
+        d = r["start_date"][:10]
+        if d not in by_date:
+            by_date[d] = {"date": d}
+        t = r["type"].replace("HKCategoryValueSleepAnalysis", "")
+        by_date[d][t] = by_date[d].get(t, 0) + int(minutes + 0.5)
+
+    result = sorted(by_date.values(), key=lambda x: x["date"], reverse=True)
+    return result

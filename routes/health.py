@@ -21,7 +21,7 @@ HEALTH_LABELS = {
 }
 
 
-def _build_body_table(body_mass: list[dict], body_fat: list[dict], max_rows: int = 10) -> list[dict]:
+def _build_body_table(body_mass: list[dict], body_fat: list[dict], max_rows: int = 5) -> list[dict]:
     """预生成身体数据表格行，避免 Jinja2 中 O(n²) 的 selectattr。"""
     by_date: dict[str, dict] = {}
     for r in body_mass:
@@ -57,10 +57,13 @@ async def health_page(request: Request):
     vo2 = ah.query_records_desc("HKQuantityTypeIdentifierVO2Max", start, end, limit=30)
     body_mass = ah.query_records_desc("HKQuantityTypeIdentifierBodyMass", start, end, limit=30)
     body_fat = ah.query_records_desc("HKQuantityTypeIdentifierBodyFatPercentage", start, end, limit=30)
-    workouts = ah.query_workouts(start=start, end=end, limit=20)
+    workouts = ah.query_workouts(start=start, end=end, limit=5)
 
-    body_rows = _build_body_table(body_mass, body_fat, max_rows=10)
+    body_rows = _build_body_table(body_mass, body_fat, max_rows=5)
     total_body_dates = len(set(r["start_date"][:10] for r in body_mass) | set(r["start_date"][:10] for r in body_fat))
+
+    sleep_summary = ah.get_sleep_summary(start, end)
+    sleep_count = len(ah.query_sleep(start, end)) if imported else 0
 
     return HTMLResponse(tmpl.render(
         request=request,
@@ -72,6 +75,8 @@ async def health_page(request: Request):
         body_rows=body_rows,
         body_row_count=total_body_dates,
         workouts=workouts,
+        sleep_summary=sleep_summary,
+        sleep_count=sleep_count,
         today=date.today(),
     ))
 

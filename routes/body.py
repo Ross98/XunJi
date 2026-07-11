@@ -27,7 +27,6 @@ def _save_body_config(config: dict):
 RANGE_MAP = {
     "30": 30,
     "90": 90,
-    "180": 180,
     "all": 3650,
 }
 
@@ -112,23 +111,36 @@ async def body_page(
     records = body_data.get("res", {}).get("records", [])
     if not records:
         records = body_data.get("records", [])
+    # API 返回大量数据时 records 可能是 JSON 字符串
+    if isinstance(records, str):
+        import json
+        records = json.loads(records)
 
-    # Merge Apple Health data
-    records, ah_dates = _merge_apple_health(records, start, today)
+    # Use API's `latest` field instead of calculating from possibly-truncated records
+    api_latest = body_data.get("res", {}).get("latest", {}) or body_data.get("latest", {})
+    if isinstance(api_latest, str):
+        import json
+        api_latest = json.loads(api_latest)
 
-    summary = summarize_body(records)
-    latest = body_latest(records)
-    stats = body_stats(records)
-    changes = body_changes(records)
+    # Merge Apple Health data (只用于 chart, 不影响 latest)
+    records_merged, ah_dates = _merge_apple_health(records, start, today)
+
+    summary = summarize_body(records_merged)
+    stats = body_stats(records_merged)
+    changes = body_changes(records_merged)
+
+    # Latest weight: 统一从 records 计算（不受 API latest 范围限制影响）
+    latest = body_latest(records_merged)
+
+    latest_weight_val = latest.get("weight", {}).get("value")
 
     config = _load_body_config()
     height_cm = config.get("height_cm", 170)
-    latest_weight = latest.get("weight", {}).get("value")
-    bmi = calculate_bmi(latest_weight, height_cm)
+    bmi = calculate_bmi(latest_weight_val, height_cm)
 
     # Latest change for stat cards
-    weight_recs = [r for r in records if r.get("type") == "weight"]
-    bf_recs = [r for r in records if r.get("type") == "bodyfat"]
+    weight_recs = [r for r in records_merged if r.get("type") == "weight"]
+    bf_recs = [r for r in records_merged if r.get("type") == "bodyfat"]
     latest_weight_change = None
     latest_bf_change = None
     if weight_recs and len(weight_recs) > 1:
@@ -140,7 +152,7 @@ async def body_page(
 
     # Period change (first vs last in range)
     w_chrono = sorted(
-        [r for r in records if r.get("type") == "weight" and r.get("value") is not None],
+        [r for r in records_merged if r.get("type") == "weight" and r.get("value") is not None],
         key=lambda x: x.get("datestr", ""),
     )
     period_weight_change = None
@@ -153,7 +165,7 @@ async def body_page(
         except (ValueError, TypeError):
             pass
     bf_chrono = sorted(
-        [r for r in records if r.get("type") == "bodyfat" and r.get("value") is not None],
+        [r for r in records_merged if r.get("type") == "bodyfat" and r.get("value") is not None],
         key=lambda x: x.get("datestr", ""),
     )
     if len(bf_chrono) >= 2:
@@ -183,7 +195,7 @@ async def body_page(
         period_weight_change=period_weight_change,
         period_bf_change=period_bf_change,
         height_cm=height_cm,
-        records_data=_build_table_data(records, changes, ah_dates),
+        records_data=_build_table_data(records_merged, changes, ah_dates),
         ah_source=ah_source,
         ah_dates=ah_dates,
     ))
