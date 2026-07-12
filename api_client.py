@@ -48,10 +48,15 @@ class XunjiAPIClient:
         self._config = config
         self._client = httpx.AsyncClient(timeout=timeout)
 
-    async def _post(self, url: str, headers: dict, payload: dict) -> dict:
-        resp = await self._client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        return resp.json()
+    async def _post(self, url: str, headers: dict, payload: dict, retries: int = 2) -> dict:
+        import asyncio
+        for attempt in range(retries + 1):
+            resp = await self._client.post(url, headers=headers, json=payload)
+            if resp.status_code == 429 and attempt < retries:
+                await asyncio.sleep(30)
+                continue
+            resp.raise_for_status()
+            return resp.json()
 
     # ── Training ──
 

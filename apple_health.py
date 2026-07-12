@@ -7,7 +7,7 @@ Apple Health 导出数据导入与查询模块。
 
 import sqlite3
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -133,6 +133,12 @@ def import_all(progress_callback=None, batch_size=5000):
         total += len(record_batch) + len(workout_batch) + len(sleep_batch)
         _bulk_insert(record_batch, workout_batch, sleep_batch)
 
+    # 记录导入时间到 xunji_cache.sqlite
+    try:
+        from cache import Cache
+        Cache().set("_health_import_time", {"time": datetime.now(timezone.utc).isoformat()})
+    except Exception:
+        pass
     return total
 
 
@@ -296,12 +302,19 @@ def get_import_count() -> dict:
         sleep_counts = conn.execute(
             "SELECT type, COUNT(*) as cnt FROM health_sleep GROUP BY type ORDER BY cnt DESC"
         ).fetchall()
+        import_time = None
+        try:
+            from cache import Cache
+            import_time = Cache().get("_health_import_time")
+        except Exception:
+            pass
     return {
         "records": [dict(r) for r in records],
         "workouts": [dict(r) for r in workouts],
         "sleep": [dict(r) for r in sleep_counts],
         "total_records": sum(r["cnt"] for r in records),
         "total_workouts": sum(r["cnt"] for r in workouts),
+        "health_import_time": import_time["time"] if import_time else None,
     }
 
 def query_records_desc(type_filter: str = None,
