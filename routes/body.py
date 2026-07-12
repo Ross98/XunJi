@@ -195,7 +195,7 @@ async def body_page(
         period_weight_change=period_weight_change,
         period_bf_change=period_bf_change,
         height_cm=height_cm,
-        records_data=_build_table_data(records_merged, changes, ah_dates),
+        records_data=_build_table_data(records_merged, changes, ah_dates, height_cm),
         ah_source=ah_source,
         ah_dates=ah_dates,
     ))
@@ -213,7 +213,7 @@ async def update_body_settings(data: dict):
 
 
 
-def _build_table_data(records: list[dict], changes: dict[str, float], ah_dates: set = None) -> list[dict]:
+def _build_table_data(records: list[dict], changes: dict[str, float], ah_dates: set = None, height_cm: float = 170.0) -> list[dict]:
     """Merge weight and bodyfat records by date into table rows (newest first)."""
     by_date: dict[str, dict] = {}
     for rec in records:
@@ -231,7 +231,7 @@ def _build_table_data(records: list[dict], changes: dict[str, float], ah_dates: 
                 pass
             by_date[d][f"{t}_change"] = changes.get(f"{t}:{d}")
             if t == "weight":
-                bmi_val = calculate_bmi(float(v))
+                bmi_val = calculate_bmi(float(v), height_cm)
                 if bmi_val is not None:
                     by_date[d]["bmi"] = bmi_val
             # Track source

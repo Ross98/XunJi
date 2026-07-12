@@ -34,6 +34,9 @@ function cancelHeightEdit() {
         <div class="stat">
             <div class="stat-value">{{ latest.get("weight",{}).get("value","--") }}</div>
             <div class="stat-label">最新体重 (kg)</div>
+            {% if latest.get("weight",{}).get("date") %}
+            <div style="font-size:10px;color:#aaa;">{{ latest.weight.date[:10] }}</div>
+            {% endif %}
             {% if latest_weight_change is not none and latest.get("weight") %}
             <div class="{% if latest_weight_change > 0 %}change-up{% elif latest_weight_change < 0 %}change-down{% else %}change-zero{% endif %}" style="font-size:12px;margin-top:2px;">
                 <span class="change-arrow">{% if latest_weight_change > 0 %}↑{% elif latest_weight_change < 0 %}↓{% endif %}</span>
@@ -46,6 +49,9 @@ function cancelHeightEdit() {
         <div class="stat">
             <div class="stat-value">{{ latest.get("bodyfat",{}).get("value","--") }}</div>
             <div class="stat-label">最新体脂率 (%)</div>
+            {% if latest.get("bodyfat",{}).get("date") %}
+            <div style="font-size:10px;color:#aaa;">{{ latest.bodyfat.date }}</div>
+            {% endif %}
             {% if latest_bf_change is not none and latest.get("bodyfat") %}
             <div class="{% if latest_bf_change > 0 %}change-up{% elif latest_bf_change < 0 %}change-down{% else %}change-zero{% endif %}" style="font-size:12px;margin-top:2px;">
                 <span class="change-arrow">{% if latest_bf_change > 0 %}↑{% elif latest_bf_change < 0 %}↓{% endif %}</span>
