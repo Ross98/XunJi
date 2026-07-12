@@ -1,20 +1,105 @@
 {% extends "base.html" %}
 {% block title %}训练规划 - 训记分析{% endblock %}
 {% block content %}
+
 <h1>训练规划</h1>
+
+{% if plan.groups %}
+
+<!-- 今日训练建议 -->
 <div class="card">
-    <div class="card-title">基于最近 {{ days }} 天的训练分析</div>
-    <p>训练天数: {{ summary.total_days }} | 总组数: {{ summary.total_sets }} | 总容量: {{ "%.0f"|format(summary.total_volume) }} kg</p>
-    <p style="margin-top:8px;font-weight:500;">{{ plan.suggested_focus }}</p>
+    <div class="card-title">今日训练建议</div>
+    <div style="display:flex;align-items:flex-start;gap:12px;">
+        <div style="font-size:48px;line-height:1;">
+            {% if plan.focus_group.key == 'legs' %}🦵
+            {% elif plan.focus_group.key == 'push' %}💪
+            {% elif plan.focus_group.key == 'pull' %}🏋️
+            {% elif plan.focus_group.key == 'core' %}🧘
+            {% elif plan.focus_group.key == 'cardio' %}🏃
+            {% elif plan.focus_group.key == 'full_body' %}🔄
+            {% else %}🏋️{% endif %}
+        </div>
+        <div style="flex:1;">
+            <p style="font-size:16px;font-weight:600;margin-bottom:4px;">
+                {% if plan.focus_group.key == 'full_body' %}
+                训练均衡，继续保持
+                {% else %}
+                <strong style="color:#e53935;">{{ plan.focus_group.name }}</strong> 训练不足
+                {% endif %}
+            </p>
+            <p style="font-size:13px;color:#888;margin-bottom:8px;">
+                {% if plan.focus_group.key != 'full_body' %}
+                最近 {{ plan.focus_group.count }} 次训练 · {{ plan.focus_group.days_since }} 天未专项训练
+                {% else %}
+                最近 30 天各部位训练分布均匀
+                {% endif %}
+            </p>
+            {% if plan.suggested_movements %}
+            <div style="font-size:13px;color:#555;">
+                <div style="font-weight:500;margin-bottom:4px;">建议动作:</div>
+                {% for m in plan.suggested_movements %}
+                <div style="display:flex;align-items:center;gap:8px;padding:3px 0;">
+                    <span style="color:#1a1a2e;">▸ {{ m.name }}</span>
+                    <span style="font-size:11px;color:#999;">{{ m.days_ago }} 天前</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
 </div>
-{% if plan.suggested_movements %}
+
+<!-- 恢复状态 -->
+{% if recovery.sleep_hours %}
 <div class="card">
-    <div class="card-title">建议包含的动作</div>
-    <ul style="padding-left:20px;">
-    {% for m in plan.suggested_movements %}
-        <li style="margin:4px 0;">{{ m }}</li>
-    {% endfor %}
-    </ul>
+    <div class="card-title">恢复状态</div>
+    <div style="display:flex;gap:16px;">
+        <div class="stat" style="flex:1;">
+            <div class="stat-value">{{ recovery.sleep_hours }}<span style="font-size:14px;color:#888;">h</span></div>
+            <div class="stat-label">昨晚睡眠</div>
+        </div>
+        <div class="stat" style="flex:1;">
+            <div class="stat-value">{{ "%.0f"|format(recovery.sleep_deep_pct) }}%</div>
+            <div class="stat-label">深睡占比</div>
+        </div>
+    </div>
+    <div style="font-size:13px;color:#555;margin-top:8px;padding:8px 12px;background:#f9f9f9;border-radius:6px;">
+        {% if recovery.sleep_hours >= 7 and recovery.sleep_deep_pct >= 15 %}
+        🟢 恢复良好，适合中高强度训练
+        {% elif recovery.sleep_hours >= 6 %}
+        🟡 恢复一般，建议中等强度
+        {% else %}
+        🔴 睡眠不足，建议休息或低强度有氧
+        {% endif %}
+    </div>
 </div>
 {% endif %}
+
+<!-- 训练分布 (30天) -->
+<div class="card">
+    <div class="card-title">训练分布 (30天)</div>
+    {% set max_count = plan.groups|map(attribute='count')|max %}
+    {% for g in plan.groups %}
+    {% if g.key != 'cardio' %}
+    <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px;">
+            <span>{{ g.name }}</span>
+            <span style="color:#888;">{{ g.count }} 次{% if g.last_date %} · 最近{{ g.days_since }}天{% endif %}</span>
+        </div>
+        <div style="height:14px;background:#eee;border-radius:7px;overflow:hidden;">
+            <div style="height:100%;width:{{ (g.count / max_count * 100)|int if max_count else 0 }}%;background:{% if g.deficit > 50 %}#e53935{% elif g.deficit > 20 %}#ff9800{% else %}#4caf50{% endif %};border-radius:7px;"></div>
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+
+{% else %}
+
+<div class="card" style="text-align:center;padding:40px;">
+    <p style="font-size:16px;color:#888;">暂无训练数据，开始训练后将在此显示建议</p>
+</div>
+
+{% endif %}
+
 {% endblock %}
