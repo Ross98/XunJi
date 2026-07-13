@@ -343,10 +343,11 @@ def training_duration_trend(trains: list[dict]) -> list[dict]:
 
 
 def calories_trend(trains: list[dict]) -> list[dict]:
-    """Extract calorie burn for each training session from metrics."""
+    """Extract calorie burn for each training session from sets or _cardio_metrics."""
     records = []
     for train in trains:
         total_cal = 0
+        # 先从 sets 里加
         for mov in train.get("movements", []):
             for s in mov.get("sets", []):
                 cal = _safe_float(s.get("calories", 0))
@@ -356,6 +357,10 @@ def calories_trend(trains: list[dict]) -> list[dict]:
                     metrics = s.get("metrics", {})
                     if isinstance(metrics, dict):
                         total_cal += _safe_float(metrics.get("calories", 0))
+        # 再从合并后的 _cardio_metrics 加
+        cm = train.get("_cardio_metrics", {})
+        if cm.get("calories"):
+            total_cal += _safe_float(cm["calories"])
         if total_cal > 0:
             records.append({
                 "date": train.get("datestr", ""),
@@ -366,7 +371,7 @@ def calories_trend(trains: list[dict]) -> list[dict]:
 
 
 def heart_rate_trend(trains: list[dict]) -> list[dict]:
-    """Extract heart rate data for each training session."""
+    """Extract heart rate data for each training session from sets or _cardio_metrics."""
     records = []
     for train in trains:
         avg_hr = None
@@ -387,6 +392,12 @@ def heart_rate_trend(trains: list[dict]) -> list[dict]:
                         avg_hr = max(avg_hr or 0, _safe_float(ahr))
                     if mhr is not None:
                         max_hr = max(max_hr or 0, _safe_float(mhr))
+        # 检查合并后的 _cardio_metrics
+        cm = train.get("_cardio_metrics", {})
+        if cm.get("avgHeartRate") is not None:
+            avg_hr = max(avg_hr or 0, _safe_float(cm["avgHeartRate"]))
+        if cm.get("maxHeartRate") is not None:
+            max_hr = max(max_hr or 0, _safe_float(cm["maxHeartRate"]))
         if avg_hr is not None or max_hr is not None:
             records.append({
                 "date": train.get("datestr", ""),

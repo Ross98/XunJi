@@ -14,10 +14,40 @@
     <div class="nav-links">
         <a href="/training" class="nav-link">训练</a>
         <a href="/body" class="nav-link">身体</a>
+        <a href="/health" class="nav-link">健康</a>
         <a href="/plan" class="nav-link">规划</a>
         <a href="/diet" class="nav-link">饮食</a>
+        <button onclick="refreshAll()" class="btn nav-link" style="background:none;border:none;cursor:pointer;color:#ccc;font-size:15px;padding:4px 8px;" title="刷新缓存">↻</button>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;font-size:10px;color:#777;line-height:1.3;white-space:nowrap;">
+            <span id="refreshHealthTs"></span>
+            <span id="refreshXunjiTs"></span>
+        </div>
     </div>
 </nav>
+<script>
+async function refreshAll() {
+    const btn = document.querySelector('button[onclick="refreshAll()"]');
+    btn.textContent = '↻...';
+    try {
+        const r = await fetch('/admin/clear-cache', { method: 'POST' });
+        const d = await r.json();
+        if (d.status === 'ok') location.reload();
+        else { btn.textContent = '↻'; alert('刷新失败: ' + d.message); }
+    } catch(e) {
+        btn.textContent = '↻';
+        alert('刷新失败: ' + e.message);
+    }
+}
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        const r = await fetch('/admin/refresh-times');
+        const d = await r.json();
+        function fmt(t) { return t ? t.slice(5,16).replace('T',' ') : ''; }
+        if (d.health) document.getElementById('refreshHealthTs').textContent = '🍎 ' + fmt(d.health);
+        if (d.xunji) document.getElementById('refreshXunjiTs').textContent = '训记 ' + fmt(d.xunji);
+    } catch(e) {}
+});
+</script>
 <main class="main">
     {% block content %}{% endblock %}
 </main>

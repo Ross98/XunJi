@@ -25,7 +25,6 @@ function cancelHeightEdit() {
 <div style="margin-bottom:16px;">
     <a href="/body?range=30" class="btn-range{% if range_selected == '30' %} active{% endif %}">1个月</a>
     <a href="/body?range=90" class="btn-range{% if range_selected == '90' %} active{% endif %}">3个月</a>
-    <a href="/body?range=180" class="btn-range{% if range_selected == '180' %} active{% endif %}">半年</a>
     <a href="/body?range=all" class="btn-range{% if range_selected == 'all' %} active{% endif %}">全部</a>
 </div>
 
@@ -35,6 +34,9 @@ function cancelHeightEdit() {
         <div class="stat">
             <div class="stat-value">{{ latest.get("weight",{}).get("value","--") }}</div>
             <div class="stat-label">最新体重 (kg)</div>
+            {% if latest.get("weight",{}).get("date") %}
+            <div style="font-size:10px;color:#aaa;">{{ latest.weight.date[:10] }}</div>
+            {% endif %}
             {% if latest_weight_change is not none and latest.get("weight") %}
             <div class="{% if latest_weight_change > 0 %}change-up{% elif latest_weight_change < 0 %}change-down{% else %}change-zero{% endif %}" style="font-size:12px;margin-top:2px;">
                 <span class="change-arrow">{% if latest_weight_change > 0 %}↑{% elif latest_weight_change < 0 %}↓{% endif %}</span>
@@ -47,6 +49,9 @@ function cancelHeightEdit() {
         <div class="stat">
             <div class="stat-value">{{ latest.get("bodyfat",{}).get("value","--") }}</div>
             <div class="stat-label">最新体脂率 (%)</div>
+            {% if latest.get("bodyfat",{}).get("date") %}
+            <div style="font-size:10px;color:#aaa;">{{ latest.bodyfat.date }}</div>
+            {% endif %}
             {% if latest_bf_change is not none and latest.get("bodyfat") %}
             <div class="{% if latest_bf_change > 0 %}change-up{% elif latest_bf_change < 0 %}change-down{% else %}change-zero{% endif %}" style="font-size:12px;margin-top:2px;">
                 <span class="change-arrow">{% if latest_bf_change > 0 %}↑{% elif latest_bf_change < 0 %}↓{% endif %}</span>
@@ -102,15 +107,23 @@ function cancelHeightEdit() {
 <div class="stats-2col">
     <div class="stats-half">
         <div class="stats-half-title">体重统计 (kg)</div>
+        <div class="stats-row"><span class="label">最新</span><span class="value">{{ latest.get('weight',{}).get('value','--') }} <span style="font-size:10px;color:#aaa;">{{ latest.get('weight',{}).get('date','') }}</span></span></div>
+        {% if period_weight_change is not none %}
+        <div class="stats-row"><span class="label">区间变化</span><span class="value" style="{% if period_weight_change > 0 %}color:#e53935{% elif period_weight_change < 0 %}color:#388e3c{% endif %}">{{ "+" if period_weight_change > 0 }}{{ "%.2f"|format(period_weight_change) }}</span></div>
+        {% endif %}
         <div class="stats-row"><span class="label">最高</span><span class="value">{{ stats.weight.max|default("--") }}</span></div>
         <div class="stats-row"><span class="label">最低</span><span class="value">{{ stats.weight.min|default("--") }}</span></div>
-        <div class="stats-row"><span class="label">平均</span><span class="value">{{ stats.weight.avg|default("--") }}</span></div>
     </div>
     <div class="stats-half">
         <div class="stats-half-title">体脂率统计 (%)</div>
+        {% if latest.get('bodyfat',{}).get('value') %}
+        <div class="stats-row"><span class="label">最新</span><span class="value">{{ latest.bodyfat.value }} <span style="font-size:10px;color:#aaa;">{{ latest.bodyfat.date }}</span></span></div>
+        {% endif %}
+        {% if period_bf_change is not none %}
+        <div class="stats-row"><span class="label">区间变化</span><span class="value" style="{% if period_bf_change < 0 %}color:#388e3c{% elif period_bf_change > 0 %}color:#e53935{% endif %}">{{ "+" if period_bf_change > 0 }}{{ "%.2f"|format(period_bf_change) }}</span></div>
+        {% endif %}
         <div class="stats-row"><span class="label">最高</span><span class="value">{{ stats.bodyfat.max|default("--") }}</span></div>
         <div class="stats-row"><span class="label">最低</span><span class="value">{{ stats.bodyfat.min|default("--") }}</span></div>
-        <div class="stats-row"><span class="label">平均</span><span class="value">{{ stats.bodyfat.avg|default("--") }}</span></div>
     </div>
 </div>
 
@@ -125,6 +138,7 @@ function cancelHeightEdit() {
                     <th>体重 (kg)</th>
                     <th>体脂率 (%)</th>
                     <th>BMI</th>
+                    <th>来源</th>
                     <th>体重变化</th>
                 </tr>
             </thead>
@@ -135,6 +149,7 @@ function cancelHeightEdit() {
                     <td>{{ row.get("weight","--") }}</td>
                     <td>{{ row.get("bodyfat","--") }}</td>
                     <td>{{ row.get("bmi","--") }}</td>
+                    <td>{{ row.get("source","") }}</td>
                     <td>
                         {% set wc = row.get("weight_change") %}
                         {% if wc is not none and wc != 0 %}
@@ -180,6 +195,11 @@ const bMap = Object.fromEntries(bfAvg.map(d => [d.date, d.value]));
 const wValues = labels.map(d => wMap[d] ?? null);
 const bValues = labels.map(d => bMap[d] ?? null);
 
+// 数据量大时缩小点、禁用动画
+const isDense = labels.length > 60;
+const ptR = isDense ? 0 : 3;
+const anim = isDense ? false : { duration: 800 };
+
 new Chart(document.getElementById('dualChart'), {
     type: 'line',
     data: {
@@ -194,7 +214,8 @@ new Chart(document.getElementById('dualChart'), {
                 fill: false,
                 yAxisID: 'y',
                 spanGaps: true,
-                pointRadius: 3,
+                pointRadius: ptR,
+                pointHoverRadius: isDense ? 3 : 5,
             },
             {
                 label: '体脂率 (%)',
@@ -205,7 +226,8 @@ new Chart(document.getElementById('dualChart'), {
                 fill: false,
                 yAxisID: 'y1',
                 spanGaps: true,
-                pointRadius: 3,
+                pointRadius: ptR,
+                pointHoverRadius: isDense ? 3 : 5,
                 borderDash: [5, 3],
             }
         ]
