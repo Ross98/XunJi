@@ -150,6 +150,38 @@ async def body_page(
         key = f"bodyfat:{bf_recs[0].get('datestr','')}"
         latest_bf_change = changes.get(key)
 
+    # Latest change for body measurement types
+    body_fields = ['chest','weist','bot','shoulder','neck',
+                   'arm_left','arm_right','forearm_left','forearm_right',
+                   'leg_left','leg_right','cav_left','cav_right']
+    latest_measurement_changes = {}
+    for field in body_fields:
+        recs = [r for r in records_merged if r.get("type") == field]
+        if recs and len(recs) > 1:
+            key = f"{field}:{recs[0].get('datestr','')}"
+            val = changes.get(key)
+            if val is not None:
+                latest_measurement_changes[field] = val
+            else:
+                latest_measurement_changes[field] = 0.0
+        elif recs:
+            latest_measurement_changes[field] = 0.0
+    body_fields = ['chest','weist','bot','shoulder','neck',
+                   'arm_left','arm_right','forearm_left','forearm_right',
+                   'leg_left','leg_right','cav_left','cav_right']
+    latest_measurement_changes = {}
+    for field in body_fields:
+        recs = [r for r in records_merged if r.get("type") == field]
+        if recs and len(recs) > 1:
+            key = f"{field}:{recs[0].get('datestr','')}"
+            val = changes.get(key)
+            if val is not None:
+                latest_measurement_changes[field] = val
+            else:
+                latest_measurement_changes[field] = 0.0
+        elif recs:
+            latest_measurement_changes[field] = 0.0
+
     # Period change (first vs last in range)
     w_chrono = sorted(
         [r for r in records_merged if r.get("type") == "weight" and r.get("value") is not None],
@@ -192,12 +224,15 @@ async def body_page(
         range_selected=range,
         latest_weight_change=latest_weight_change,
         latest_bf_change=latest_bf_change,
+        latest_measurement_changes=latest_measurement_changes,
         period_weight_change=period_weight_change,
         period_bf_change=period_bf_change,
         height_cm=height_cm,
         records_data=_build_table_data(records_merged, changes, ah_dates, height_cm),
         ah_source=ah_source,
         ah_dates=ah_dates,
+        today=date.today().isoformat(),
+        
     ))
 
 

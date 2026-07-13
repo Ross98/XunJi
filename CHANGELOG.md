@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.0 (2026-07-13)
+
+Apple Health 集成 + 健康仪表盘 + 训练计划增强。
+
+### 新功能
+
+- **Apple Health 导入** — 流式解析导出 XML，支持 59 种指标、9 种训练类型
+- **健康仪表盘** — HRV、静息心率、VO₂Max 趋势图，今日活动快照
+- **恢复分析** — 训练日 vs 休息日 HRV 对比，14 天趋势标记图
+- **身体数据融合** — Apple Health 体重/体脂自动补充训记 API
+- **训练计划增强** — 热量赤字分析、动作分类、Apple Health 恢复上下文
+- **睡眠分析** — 睡眠阶段导入与分布图表
+
+### 技术架构
+
+- `apple_health.py` — 流式 XML 解析引擎，按批写入 SQLite
+- 增量导入支持（INSERT OR IGNORE）
+- `substr(start_date,1,10)` 修复时区后缀导致的日期比较问题
+
 ## v1.0 (2026-07-10)
 
 初始发布。基于训记 Open API 的个人健身数据仪表盘。
@@ -22,8 +41,3 @@
 - SQLite 缓存层（避免重复 API 请求）
 - httpx 异步 HTTP 客户端
 - Docker 部署支持
-
-### 配置要求
-
-- 训记 App VIP 账号 + 4 组 Open API Key
-- 参见 `.env.example` 配置说明

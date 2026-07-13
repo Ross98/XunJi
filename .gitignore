@@ -6,3 +6,15 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 xunji_cache.sqlite
+
+# Apple Health
+Apple Health/
+apple_health_cache.sqlite
+*.sqlite
+
+# IDE
+.claude/
+
+# Generated assets
+static/img/body-front.svg
+templates/body_svg.html
