@@ -21,6 +21,45 @@ function cancelHeightEdit() {
 {% block content %}
 <h1>身体数据</h1>
 
+<div class="card">
+    <div class="card-title">最新测量 ({{ today }})</div>
+
+    <!-- 躯干 -->
+    <div class="sub-card" style="margin-bottom:14px;padding:14px;background:#fff;border-radius:8px;">
+        <div style="font-size:13px;color:#888;font-weight:600;margin-bottom:8px;">躯干</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;">
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">脖围</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('neck','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('neck') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">肩宽</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('shoulder','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('shoulder') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">胸围</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('chest','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('chest') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">腰围</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('weist','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('weist') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">臀围</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('bot','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('bot') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+        </div>
+    </div>
+
+    <!-- 右侧 -->
+    <div class="sub-card" style="margin-bottom:14px;padding:14px;background:#fff;border-radius:8px;">
+        <div style="font-size:13px;color:#888;font-weight:600;margin-bottom:8px;">右侧</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;">
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">大臂</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('arm_right','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('arm_right') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">小臂</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('forearm_right','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('forearm_right') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">大腿</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('leg_right','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('leg_right') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">小腿</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('cav_right','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('cav_right') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+        </div>
+    </div>
+
+    <!-- 左侧 -->
+    <div class="sub-card" style="padding:14px;background:#fff;border-radius:8px;">
+        <div style="font-size:13px;color:#888;font-weight:600;margin-bottom:8px;">左侧</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;">
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">大臂</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('arm_left','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('arm_left') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">小臂</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('forearm_left','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('forearm_left') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">大腿</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('leg_left','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('leg_left') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">小腿</div><div style="font-size:17px;font-weight:600;">{{ records_data[0].get('cav_left','--') if records_data else '--' }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('cav_left') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+        </div>
+    </div>
+
+
+
 <!-- Range selector -->
 <div style="margin-bottom:16px;">
     <a href="/body?range=30" class="btn-range{% if range_selected == '30' %} active{% endif %}">1个月</a>
@@ -130,7 +169,7 @@ function cancelHeightEdit() {
 <!-- Data table -->
 <div class="card">
     <div class="card-title">历史记录</div>
-    <div class="data-table-wrap">
+    <div class="data-table-wrap" style="overflow-x:auto;">
         <table class="data-table">
             <thead>
                 <tr>
@@ -143,18 +182,18 @@ function cancelHeightEdit() {
                 </tr>
             </thead>
             <tbody>
-                {% for row in records_data[:5] %}
+                {% for row in records_data[:3] %}
                 <tr>
                     <td>{{ row.date[5:] }}</td>
                     <td>{{ row.get("weight","--") }}</td>
                     <td>{{ row.get("bodyfat","--") }}</td>
                     <td>{{ row.get("bmi","--") }}</td>
-                    <td>{{ row.get("source","") }}</td>
+                    <td>{% if row.get("source") %}&#x1F34E;{% else %}训记{% endif %}</td>
                     <td>
                         {% set wc = row.get("weight_change") %}
                         {% if wc is not none and wc != 0 %}
                         <span class="{% if wc > 0 %}change-up{% else %}change-down{% endif %}">
-                            <span class="change-arrow">{% if wc > 0 %}↑{% else %}↓{% endif %}</span>
+                            <span class="change-arrow">{% if wc > 0 %}&#x2191;{% else %}&#x2193;{% endif %}</span>
                             {{ "%.2f"|format(wc|abs) }}
                         </span>
                         {% else %}
