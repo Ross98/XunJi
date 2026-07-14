@@ -137,6 +137,8 @@ def import_all(progress_callback=None, batch_size=5000):
     try:
         from cache import Cache
         Cache().set("_health_import_time", {"time": datetime.now(timezone.utc).isoformat()})
+
+
     except Exception:
         pass
     return total
@@ -316,6 +318,24 @@ def get_import_count() -> dict:
         "total_workouts": sum(r["cnt"] for r in workouts),
         "health_import_time": import_time["time"] if import_time else None,
     }
+
+def get_latest_dates(type_filter=None):
+    """Get the latest start_date for each AH record type.
+    Returns dict of type -> latest YYYY-MM-DD or None.
+    If type_filter is given, returns only that type.
+    """
+    with _conn() as conn:
+        if type_filter:
+            row = conn.execute(
+                "SELECT type, MAX(substr(start_date, 1, 10)) as latest FROM health_records WHERE type = ?",
+                (type_filter,)
+            ).fetchone()
+            return {type_filter: row['latest'] or None}
+        rows = conn.execute(
+            "SELECT type, MAX(substr(start_date, 1, 10)) as latest FROM health_records GROUP BY type"
+        ).fetchall()
+        return {r["type"]: r["latest"] for r in rows}
+
 
 def query_records_desc(type_filter: str = None,
                        start: str = None,
