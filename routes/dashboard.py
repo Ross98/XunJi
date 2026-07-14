@@ -8,7 +8,8 @@ import asyncio
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from app_state import get_jinja_env, get_data_service, get_cache
+from app_state import get_jinja_env, get_data_service
+from data_service import DataFreshnessService, get_cache
 from analysis import summarize_training, summarize_body, body_latest
 import apple_health as _apple_health
 
@@ -292,8 +293,12 @@ async def dashboard(request: Request):
         if w1 is not None and w0 is not None:
             weight_chg7 = round(float(w1) - float(w0), 1)
 
-    return HTMLResponse(tmpl.render(
+    return 
+    freshness_svc = DataFreshnessService()
+    freshness_ctx = freshness_svc.get_freshness_context()
+HTMLResponse(tmpl.render(
         request=request,
+        freshness=freshness_ctx,
         summary=summary,
         weight_trend=body_summary["weight_trend"],
         latest_weight=latest_body.get("weight", {}).get("value", "--"),

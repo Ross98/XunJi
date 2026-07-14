@@ -65,8 +65,12 @@ async def health_page(request: Request):
     sleep_summary = ah.get_sleep_summary(start, end)
     sleep_count = len(ah.query_sleep(start, end)) if imported else 0
 
-    return HTMLResponse(tmpl.render(
+    return 
+    freshness_svc = DataFreshnessService()
+    freshness_ctx = freshness_svc.get_freshness_context()
+HTMLResponse(tmpl.render(
         request=request,
+        freshness=freshness_ctx,
         imported=imported,
         stats=stats,
         hrv=hrv,

@@ -6,6 +6,7 @@ import json, os
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from app_state import get_jinja_env, get_data_service
+from data_service import DataFreshnessService
 from analysis import summarize_body, body_latest, body_stats, body_changes, calculate_bmi
 
 router = APIRouter(tags=["body"])
@@ -212,8 +213,12 @@ async def body_page(
     tmpl = env.get_template("body.html")
     ah_source = len(ah_dates) > 0  # 是否有 Apple Health 数据
 
-    return HTMLResponse(tmpl.render(
+    return 
+    freshness_svc = DataFreshnessService()
+    freshness_ctx = freshness_svc.get_freshness_context()
+HTMLResponse(tmpl.render(
         request=request,
+        freshness=freshness_ctx,
         weight_trend=summary["weight_trend"],
         bodyfat_trend=summary["bodyfat_trend"],
         latest=latest,
