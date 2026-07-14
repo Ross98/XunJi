@@ -4,40 +4,6 @@
 {% include '_freshness_bar.html' %}
 <h1>总览仪表盘</h1>
 
-<div class="sortable-card" data-section="sleep">
-{% if health and health.has_data and health.sleep_last %}
-{% set sl = health.sleep_last %}
-{% set deep = sl.get('AsleepDeep',0) %}
-{% set rem = sl.get('AsleepREM',0) %}
-{% set core = sl.get('AsleepCore',0) %}
-{% set awake = sl.get('Awake',0) %}
-{% set st = deep + rem + core + sl.get('AsleepUnspecified',0) %}
-{% set inbed = sl.get('InBed',0) %}
-<div class="card">
-    <div class="card-title">昨晚睡眠 · {{ sl.date }}</div>
-    <div style="display:flex;align-items:center;gap:16px;">
-        <div style="flex:0 0 80px;text-align:center;">
-            <div style="font-size:28px;font-weight:700;">{{ (st / 60)|int }}<span style="font-size:14px;font-weight:400;color:#888;">h</span>{{ '%.0f'|format(st % 60) }}<span style="font-size:14px;font-weight:400;color:#888;">m</span></div>
-            <div style="font-size:11px;color:#888;">总睡眠</div>
-        </div>
-        <div style="flex:1;">
-            <div style="height:24px;display:flex;border-radius:6px;overflow:hidden;gap:2px;">
-                {% if deep > 0 %}<div style="flex:{{ deep }};background:#1a237e;min-width:6px;" title="深睡 {{ (deep/60)|int }}h{{ '%.0f'|format(deep%60) }}"></div>{% endif %}
-                {% if rem > 0 %}<div style="flex:{{ rem }};background:#7c4dff;min-width:6px;" title="REM {{ (rem/60)|int }}h{{ '%.0f'|format(rem%60) }}"></div>{% endif %}
-                {% if core > 0 %}<div style="flex:{{ core }};background:#64b5f6;min-width:6px;" title="浅睡 {{ (core/60)|int }}h{{ '%.0f'|format(core%60) }}"></div>{% endif %}
-                {% if awake > 0 %}<div style="flex:{{ awake }};background:#e0e0e0;min-width:4px;" title="清醒 {{ (awake/60)|int }}h{{ '%.0f'|format(awake%60) }}"></div>{% endif %}
-                {% if inbed > 0 and inbed > st %}<div style="flex:{{ inbed - st }};background:#f5f5f5;" title="床上清醒"></div>{% endif %}
-            </div>
-            <div style="display:flex;gap:12px;font-size:10px;color:#888;margin-top:4px;flex-wrap:wrap;">
-                {% if deep > 0 %}<span>🟦 深睡 {{ (deep/60)|int }}h{{ '%.0f'|format(deep%60) }}</span>{% endif %}
-                {% if rem > 0 %}<span>🟪 REM {{ (rem/60)|int }}h{{ '%.0f'|format(rem%60) }}</span>{% endif %}
-                {% if core > 0 %}<span>🟦 浅睡 {{ (core/60)|int }}h{{ '%.0f'|format(core%60) }}</span>{% endif %}
-                {% if awake > 0 %}<span>⬜ 清醒 {{ (awake/60)|int }}h{{ '%.0f'|format(awake%60) }}</span>{% endif %}
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
 </div> {# /sortable-card sleep #}
 
 <div class="sortable-card" data-section="stats">
@@ -70,7 +36,7 @@
     <div class="card"><div class="stat">
         {% set step_pct = (health.today_steps / health.step_avg * 100)|int if health.step_avg else 0 %}{% set fm = freshness.metrics.steps %}
         <div class="stat-value">{{ health.today_steps }} <span style="font-size:14px;font-weight:400;{% if step_pct >= 100 %}color:#e53935{% else %}color:#388e3c{% endif %}">{{ step_pct }}%</span></div>
-        <div class="stat-label">昨日步数</div>
+        <div class="stat-label">{% if freshness.metrics.steps.days_ago == 0 %}昨日步数{% elif freshness.metrics.steps.days_ago == 1 %}{{ freshness.metrics.steps.latest[5:] }} 步数{% else %}{{ freshness.metrics.steps.latest[5:] }} 步数{% endif %}</div>
         <div style="height:4px;background:#eee;border-radius:2px;margin:6px 0;overflow:hidden;">
             <div style="height:100%;width:{{ step_pct }}%;background:#4caf50;border-radius:2px;"></div>
         </div>
@@ -79,7 +45,7 @@
     <div class="card"><div class="stat">
         {% set ex_pct = (health.today_exercise / health.ex_avg * 100)|int if health.ex_avg else 0 %}{% set fm = freshness.metrics.exercise_minutes %}
         <div class="stat-value">{{ health.today_exercise }} <span style="font-size:14px;font-weight:400;{% if ex_pct >= 100 %}color:#e53935{% else %}color:#388e3c{% endif %}">{{ ex_pct }}%</span></div>
-        <div class="stat-label">昨日活动</div>
+        <div class="stat-label">{% if freshness.metrics.exercise_minutes.days_ago == 0 %}昨日活动{% elif freshness.metrics.exercise_minutes.days_ago == 1 %}{{ freshness.metrics.exercise_minutes.latest[5:] }} 活动{% else %}{{ freshness.metrics.exercise_minutes.latest[5:] }} 活动{% endif %}</div>
         <div style="height:4px;background:#eee;border-radius:2px;margin:6px 0;overflow:hidden;">
             <div style="height:100%;width:{{ ex_pct }}%;background:#2196f3;border-radius:2px;"></div>
         </div>
@@ -88,7 +54,7 @@
     <div class="card"><div class="stat">
         {% set stand_pct = (health.today_stand / health.stand_avg * 100)|int if health.stand_avg else 0 %}{% set fm = freshness.metrics.stand_hours %}
         <div class="stat-value">{{ health.today_stand }} <span style="font-size:14px;font-weight:400;{% if stand_pct >= 100 %}color:#e53935{% else %}color:#388e3c{% endif %}">{{ stand_pct }}%</span><div style="font-size:10px;color:#999;margin-top:1px;">{{ fm.tag }}</div></div>
-        <div class="stat-label">昨日站立</div>
+        <div class="stat-label">{% if freshness.metrics.stand_hours.days_ago == 0 %}昨日站立{% elif freshness.metrics.stand_hours.days_ago == 1 %}{{ freshness.metrics.stand_hours.latest[5:] }} 站立{% else %}{{ freshness.metrics.stand_hours.latest[5:] }} 站立{% endif %}</div>
         <div style="height:4px;background:#eee;border-radius:2px;margin:6px 0;overflow:hidden;">
             <div style="height:100%;width:{{ stand_pct }}%;background:#ff9800;border-radius:2px;"></div>
         </div>

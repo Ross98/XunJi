@@ -205,8 +205,23 @@ function loadConfig() {
     } catch(e) { return null; }
 }
 
+async function loadServerConfig() {
+    try {
+        const resp = await fetch('/diet/config');
+        const data = await resp.json();
+        if (data && data.height) {
+            localStorage.setItem(CONFIG_KEY, JSON.stringify(data));
+            return data;
+        }
+    } catch(e) {}
+    return null;
+}
+
 function saveConfig(cfg) {
-    try { localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg)); } catch(e) {}
+    try {
+        localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
+        fetch('/diet/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(cfg)});
+    } catch(e) {}
 }
 
 function showConfigModal() {
@@ -504,11 +519,17 @@ function showToast(msg, duration) {
 }
 
 // ── Init ──
-if (!loadConfig()) {
-    showConfigModal();
-} else {
-    renderDashboard();
-}
+(async function init() {
+    let cfg = loadConfig();
+    if (!cfg) {
+        cfg = await loadServerConfig();
+    }
+    if (!cfg) {
+        showConfigModal();
+    } else {
+        renderDashboard();
+    }
+})();
 // ── Populate units dropdown ──
 function populateUnits(food) {
     var sel = document.getElementById('modalUnit');

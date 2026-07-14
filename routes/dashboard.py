@@ -144,12 +144,35 @@ async def dashboard(request: Request):
         rhr_trend = _build_trend(rhr_raw)
         vo2_trend = _build_trend(vo2_raw)
 
+        # Steps: try yesterday, fall back to latest available
         step_raw = ah.query_records("HKQuantityTypeIdentifierStepCount", yesterday, yesterday + " 23:59:59")
         today_steps = sum(r["value"] for r in step_raw if r.get("value")) if step_raw else 0
+        if today_steps == 0:
+            latest_dates = ah.get_latest_dates("HKQuantityTypeIdentifierStepCount")
+            latest_step_date = latest_dates.get("HKQuantityTypeIdentifierStepCount")
+            if latest_step_date:
+                step_raw = ah.query_records("HKQuantityTypeIdentifierStepCount", latest_step_date, latest_step_date + " 23:59:59")
+                today_steps = sum(r["value"] for r in step_raw if r.get("value")) if step_raw else 0
+
+        # Exercise: try yesterday, fall back to latest
         ex_raw = ah.query_records("HKQuantityTypeIdentifierAppleExerciseTime", yesterday, yesterday + " 23:59:59")
         today_exercise = sum(r["value"] for r in ex_raw if r.get("value")) if ex_raw else 0
+        if today_exercise == 0:
+            latest_dates = ah.get_latest_dates("HKQuantityTypeIdentifierAppleExerciseTime")
+            latest_ex_date = latest_dates.get("HKQuantityTypeIdentifierAppleExerciseTime")
+            if latest_ex_date:
+                ex_raw = ah.query_records("HKQuantityTypeIdentifierAppleExerciseTime", latest_ex_date, latest_ex_date + " 23:59:59")
+                today_exercise = sum(r["value"] for r in ex_raw if r.get("value")) if ex_raw else 0
+
+        # Stand: try yesterday, fall back to latest
         stand_raw = ah.query_records_desc("HKQuantityTypeIdentifierAppleStandTime", yesterday, yesterday + " 23:59:59")
         today_stand = round(sum(r["value"] for r in stand_raw if r.get("value"))) if stand_raw else 0
+        if today_stand == 0:
+            latest_dates = ah.get_latest_dates("HKQuantityTypeIdentifierAppleStandTime")
+            latest_stand_date = latest_dates.get("HKQuantityTypeIdentifierAppleStandTime")
+            if latest_stand_date:
+                stand_raw = ah.query_records_desc("HKQuantityTypeIdentifierAppleStandTime", latest_stand_date, latest_stand_date + " 23:59:59")
+                today_stand = round(sum(r["value"] for r in stand_raw if r.get("value"))) if stand_raw else 0
 
         # 90d averages for context
         step_90d = ah.query_records("HKQuantityTypeIdentifierStepCount", start, end)

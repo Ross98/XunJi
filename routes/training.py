@@ -286,12 +286,13 @@ async def training_page(request: Request):
     }
 
     # Unique movement names for the movement tracker dropdown
+    EXCLUDED_MOVEMENTS = {"力量训练", "传统力量训练", "功能性力量训练", "步行"}
     movement_names = sorted(set(
         mov.get("name", "")
         for train in all_trains
         for mov in train.get("movements", [])
         if mov.get("name")
-    ))
+    ) - EXCLUDED_MOVEMENTS)
 
     env = get_jinja_env()
     tmpl = env.get_template("training.html")

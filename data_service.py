@@ -148,16 +148,16 @@ class DataFreshnessService:
     def _freshness_tag(status: str, days_ago: Optional[int]) -> str:
         if status in ("today", "fresh"):
             if days_ago == 0:
-                return "✅ 今天"
-            return f"🕐 {days_ago}天前"
+                return "[今天]"
+            return f"[{days_ago}天前]"
         elif status == "recent":
-            return f"🕐 {days_ago}天前"
+            return f"[{days_ago}天前]"
         elif status == "stale":
-            return f"⏳ {days_ago}天前"
+            return f"[{days_ago}天前]"
         elif status == "expired":
-            return f"⚠️ {days_ago}天未更新"
+            return f"[{days_ago}天未更新]"
         else:
-            return "📥 未导入"
+            return "[未导入]"
 
 
 def get_cache():

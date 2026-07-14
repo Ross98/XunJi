@@ -164,7 +164,7 @@ function renderAnalysisCharts() {
     }
     
     // Type distribution
-    const typeData = analysisData.type_dist || [];
+    const typeData = (analysisData.type_dist || []).filter(d => d.name !== '力量训练');
     if (typeData.length > 0) {
         const colors = ['#1a1a2e','#e53935','#4caf50','#ff9800','#2196f3','#9c27b0','#795548'];
         const dims = ['训练次数', '总时长 (小时)', '每次时长 (分)'];

@@ -11,10 +11,10 @@ from pathlib import Path
 # API 会返回 training type 的英文名，这些不在官方动作表里
 
 TYPE_CN: dict[str, str] = {
-    "TraditionalStrengthTraining": "传统力量训练",
+    "TraditionalStrengthTraining": "力量训练",
     "BodyweightTraining": "自重训练",
     "StrengthTraining": "力量训练",
-    "FunctionalStrengthTraining": "功能性力量训练",
+    "FunctionalStrengthTraining": "力量训练",
     "HighIntensityIntervalTraining": "高强度间歇训练",
     "CircuitTraining": "循环训练",
     "CoreTraining": "核心训练",
@@ -101,7 +101,7 @@ def movement_name_cn(name: str) -> str:
     return TYPE_CN.get(name, name)
 
 
-GENERIC_TYPES = {"AppleHealthWorkout"}
+GENERIC_TYPES = {"AppleHealthWorkout", "TraditionalStrengthTraining", "FunctionalStrengthTraining"}
 
 
 def apply_movement_cn_to_trains(trains: list[dict]) -> list[dict]:

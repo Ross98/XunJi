@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+import json, os
 
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -81,6 +82,35 @@ async def diet_history(
         dates_with_data=dates_with_data,
         range_days=range_days,
     ))
+
+DIET_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "diet_config.json")
+
+
+def _load_diet_config() -> dict:
+    if os.path.exists(DIET_CONFIG_PATH):
+        with open(DIET_CONFIG_PATH) as f:
+            return json.load(f)
+    return {}
+
+
+def _save_diet_config(config: dict):
+    with open(DIET_CONFIG_PATH, "w") as f:
+        json.dump(config, f)
+
+
+@router.get("/diet/config")
+async def get_diet_config():
+    return JSONResponse(_load_diet_config())
+
+
+@router.post("/diet/config")
+async def save_diet_config(data: dict):
+    config = _load_diet_config()
+    config.update(data)
+    _save_diet_config(config)
+    return {"status": "ok"}
+
+
 
 
 @router.get("/diet/search")
