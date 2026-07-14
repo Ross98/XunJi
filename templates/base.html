@@ -50,6 +50,58 @@ document.addEventListener('DOMContentLoaded', async function() {
 <main class="main">
     {% block content %}{% endblock %}
 </main>
+<div class="modal-overlay" id="ahReminder" style="display:none;">
+    <div class="modal-box" style="max-width:400px;">
+        <div class="modal-title" style="color:#e65100;">📥 Apple Health 数据需要更新</div>
+        <p style="font-size:13px;color:#555;margin-bottom:16px;">
+            Apple Health 数据上次导入已是 <strong id="ahReminderDays"></strong> 天前，
+            部分卡片展示的可能不是最新数据。<br><br>
+            请重新导出 Apple Health 数据并上传导入。
+        </p>
+        <div style="text-align:right;">
+            <button onclick="document.getElementById('ahReminder').style.display='none'" 
+                    style="padding:8px 16px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;">知道了</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(async function() {
+    if (localStorage.getItem('ah_reminder_shown')) return;
+    try {
+        var r = await fetch('/api/ah-check');
+        var d = await r.json();
+        if (!d.import_time) return;
+        var importDate = new Date(d.import_time.replace(' ', 'T'));
+        var now = new Date();
+        var daysAgo = Math.floor((now - importDate) / (1000*60*60*24));
+        if (daysAgo > 7) {
+            document.getElementById('ahReminderDays').textContent = daysAgo;
+            document.getElementById('ahReminder').style.display = 'flex';
+            localStorage.setItem('ah_reminder_shown', '1');
+        }
+    } catch(e) {}
+})();
+</script>
 {% block extra_scripts %}{% endblock %}
+<div id="pageLoading" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.85);z-index:9999;flex-direction:column;align-items:center;justify-content:center;">
+    <div style="width:36px;height:36px;border:3px solid #e0e0e0;border-top-color:#1a1a2e;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:12px;"></div>
+    <div style="font-size:14px;color:#555;">加载中...</div>
+</div>
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+<script>
+document.addEventListener('click', function(e) {
+    var link = e.target.closest('a');
+    if (link && link.href && !link.hasAttribute('download') && !link.getAttribute('href').startsWith('#') && !link.getAttribute('href').startsWith('javascript:')) {
+        document.getElementById('pageLoading').style.display = 'flex';
+    }
+});
+window.addEventListener('pageshow', function() {
+    var loader = document.getElementById('pageLoading');
+    if (loader) loader.style.display = 'none';
+});
+</script>
 </body>
 </html>
