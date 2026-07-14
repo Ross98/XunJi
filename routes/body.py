@@ -213,10 +213,9 @@ async def body_page(
     tmpl = env.get_template("body.html")
     ah_source = len(ah_dates) > 0  # 是否有 Apple Health 数据
 
-    return 
     freshness_svc = DataFreshnessService()
     freshness_ctx = freshness_svc.get_freshness_context()
-HTMLResponse(tmpl.render(
+    return HTMLResponse(tmpl.render(
         request=request,
         freshness=freshness_ctx,
         weight_trend=summary["weight_trend"],

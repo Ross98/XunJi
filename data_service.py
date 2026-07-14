@@ -146,8 +146,10 @@ class DataFreshnessService:
 
     @staticmethod
     def _freshness_tag(status: str, days_ago: Optional[int]) -> str:
-        if status == "today":
-            return "✅ 今天"
+        if status in ("today", "fresh"):
+            if days_ago == 0:
+                return "✅ 今天"
+            return f"🕐 {days_ago}天前"
         elif status == "recent":
             return f"🕐 {days_ago}天前"
         elif status == "stale":
@@ -156,3 +158,9 @@ class DataFreshnessService:
             return f"⚠️ {days_ago}天未更新"
         else:
             return "📥 未导入"
+
+
+def get_cache():
+    """Get Cache singleton."""
+    from cache import Cache
+    return Cache()

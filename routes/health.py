@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from app_state import get_jinja_env
+from data_service import DataFreshnessService
 import apple_health as ah
 
 router = APIRouter(tags=["health"])
@@ -65,10 +66,9 @@ async def health_page(request: Request):
     sleep_summary = ah.get_sleep_summary(start, end)
     sleep_count = len(ah.query_sleep(start, end)) if imported else 0
 
-    return 
     freshness_svc = DataFreshnessService()
     freshness_ctx = freshness_svc.get_freshness_context()
-HTMLResponse(tmpl.render(
+    return HTMLResponse(tmpl.render(
         request=request,
         freshness=freshness_ctx,
         imported=imported,

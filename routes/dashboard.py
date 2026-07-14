@@ -293,10 +293,9 @@ async def dashboard(request: Request):
         if w1 is not None and w0 is not None:
             weight_chg7 = round(float(w1) - float(w0), 1)
 
-    return 
     freshness_svc = DataFreshnessService()
     freshness_ctx = freshness_svc.get_freshness_context()
-HTMLResponse(tmpl.render(
+    return HTMLResponse(tmpl.render(
         request=request,
         freshness=freshness_ctx,
         summary=summary,
