@@ -18,3 +18,7 @@ apple_health_cache.sqlite
 # Generated assets
 static/img/body-front.svg
 templates/body_svg.html
+
+# Launch scripts
+start.sh
+*.command
