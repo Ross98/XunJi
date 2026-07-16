@@ -4,7 +4,7 @@ from typing import Optional
 import json, os
 
 from fastapi import APIRouter, Request, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from app_state import get_jinja_env, get_data_service
 from data_service import DataFreshnessService
 from analysis import summarize_body, body_latest, body_stats, body_changes, calculate_bmi
@@ -96,6 +96,7 @@ def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list
                 })
 
     return merged, ah_dates
+
 
 
 @router.get("/body", response_class=HTMLResponse)
