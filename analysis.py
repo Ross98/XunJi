@@ -315,11 +315,20 @@ def movement_history(trains: list[dict], movement_name: str) -> list[dict]:
 
 def training_frequency_by_date(trains: list[dict]) -> list[str]:
     """Return sorted list of dates that have training records."""
+    from datetime import datetime
     dates: set[str] = set()
     for train in trains:
         d = train.get("datestr", "")
         if d:
             dates.add(d)
+            continue
+        ts = train.get("start", 0)
+        if ts:
+            try:
+                dt = datetime.fromtimestamp(int(ts) / 1000)
+                dates.add(f"{dt.year}-{str(dt.month).zfill(2)}-{str(dt.day).zfill(2)}")
+            except (ValueError, OSError):
+                pass
     return sorted(dates)
 
 
