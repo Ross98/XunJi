@@ -46,17 +46,7 @@
 
     <!-- 频率日历 -->
     <div class="tab-panel" id="tab-frequency">
-        <div class="mixed-layout">
-            <div class="mixed-heatmap">
-                <div class="hm-months" id="hmMonths"></div>
-                <div style="display:flex;gap:16px;">
-                    <div class="hm-dows" id="hmDow" style="font-size:10px;color:#888;display:flex;flex-direction:column;gap:3px;padding-top:2px;"></div>
-                    <div class="hm-grid" id="hmGrid"></div>
-                </div>
-                <div class="hm-legend" id="hmLegend"></div>
-            </div>
-            <div class="mixed-stats" id="hmStats" style="flex:0 0 160px;padding-left:16px;border-left:1px solid #eee;"></div>
-        </div>
+        <div id="hmStats" style="padding:10px 0;"></div>
     </div>
 </div>
 <div class="card">
@@ -81,6 +71,161 @@
 {% block extra_scripts %}
 <script>
 // ── Tab switching ──
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        this.classList.add('active');
+        document.getElementById('tab-' + this.dataset.tab).classList.add('active');
+    });
+});
+
+// ── Volume data ──
+const volData = {{ volume_data | tojson | safe }};
+const volLabels = Object.keys(volData).sort();
+const volValues = volLabels.map(d => volData[d]);
+
+function renderVolume(range) {
+    const n = Math.min(range, volLabels.length);
+    const labels = volLabels.slice(-n);
+    const values = labels.map(d => volData[d] || 0);
+    const ctx = document.getElementById('volChart');
+    if (window._volChart) window._volChart.destroy();
+    if (labels.length === 0) return;
+    window._volChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets: [{ label: '容量 (kg)', data: values, borderColor: '#1a1a2e', tension: 0.3, fill: false, pointRadius: 3 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+}
+document.querySelectorAll('.btn-range').forEach(btn => {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('.btn-range').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        renderVolume(parseInt(this.dataset.range));
+    });
+});
+renderVolume(30);
+
+// ── Training Analysis ──
+const analysisData = {{ analysis_data | tojson | safe }};
+
+function renderAnalysisCharts() {
+    // Duration trend
+    const durData = analysisData.duration || [];
+    if (durData.length > 0) {
+        new Chart(document.getElementById('durChart'), {
+            type: 'line',
+            data: { labels: durData.map(d=>d.date), datasets: [{ label: '时长 (分钟)', data: durData.map(d=>d.duration_min), borderColor: '#1a1a2e', tension: 0.3, fill: false, pointRadius: 4 }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: '分钟' } } } }
+        });
+    } else {
+        document.querySelector('#tab-analysis .chart-container:first-child').innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无时长数据</p>';
+    }
+    
+    // Calories trend
+    const calData = analysisData.calories || [];
+    if (calData.length > 0) {
+        new Chart(document.getElementById('calChart'), {
+            type: 'bar',
+            data: { labels: calData.map(d=>d.date), datasets: [{ label: '热量 (kcal)', data: calData.map(d=>d.calories), backgroundColor: '#4caf50' }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'kcal' } } } }
+        });
+    } else {
+        document.querySelectorAll('#tab-analysis .chart-container')[1].innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无热量数据</p>';
+    }
+    
+    // Heart rate
+    const hrData = analysisData.heart_rate || [];
+    if (hrData.length > 0) {
+        new Chart(document.getElementById('hrChart'), {
+            type: 'line',
+            data: {
+                labels: hrData.map(d=>d.date),
+                datasets: [
+                    { label: '平均心率', data: hrData.map(d=>d.avg_hr), borderColor: '#2196f3', tension: 0.3, fill: false, pointRadius: 4 },
+                    { label: '最高心率', data: hrData.map(d=>d.max_hr), borderColor: '#e53935', tension: 0.3, fill: false, pointRadius: 4 }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'bpm' } } } }
+        });
+    } else {
+        document.querySelectorAll('#tab-analysis .chart-container')[2].innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无心率数据</p>';
+    }
+    
+    // Type distribution
+    const typeData = (analysisData.type_dist || []).filter(d => d.name !== '力量训练');
+    if (typeData.length > 0) {
+        const colors = ['#1a1a2e','#e53935','#4caf50','#ff9800','#2196f3','#9c27b0','#795548'];
+        const dims = ['训练次数', '总时长 (小时)', '每次时长 (分)'];
+        const units = ['次', '小时', '分'];
+        const rColors = ['#2196f3','#e53935','#4caf50','#ff9800','#9c27b0','#795548'];
+        const rawVals = typeData.map(d=>[
+            d.count,
+            d.duration_min ? +(d.duration_min/60).toFixed(1) : 0,
+            d.count>0 ? Math.round(d.duration_min/d.count) : 0
+        ]);
+        const maxes = dims.map((_,i)=>Math.max(...rawVals.map(v=>v[i]),1));
+        const radSets = typeData.map((d,i)=>({
+            label: d.name,
+            data: rawVals[i].map((v,j)=>+(v/maxes[j]*100).toFixed(1)),
+            _orig: rawVals[i],
+            borderColor: rColors[i],
+            backgroundColor: rColors[i]+'22',
+            pointRadius: 4
+        }));
+        new Chart(document.getElementById('typeChart'), {
+            type: 'radar',
+            data: {labels:dims, datasets:radSets},
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: {position:'bottom'},
+                    tooltip: {callbacks: {label: ctx=>dims[ctx.dataIndex]+': '+ctx.dataset._orig[ctx.dataIndex]+units[ctx.dataIndex]}}
+                },
+                scales: {r: {beginAtZero:true, max:110, ticks:{stepSize:20, callback:v=>v+'%'}}}
+            }
+        });
+    } else {
+        document.querySelectorAll('#tab-analysis .chart-container')[3].innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无类型数据</p>';
+    }
+}
+renderAnalysisCharts();
+
+// ── Training frequency table ──
+const freqDates = new Set({{ freq_dates | tojson | safe }});
+const freqCounts = {{ freq_counts | tojson | safe }};
+const monthNames = ['', '一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+
+function renderFreqTable() {
+    const el = document.getElementById('hmStats');
+    if (!el) return;
+    const sorted = Object.keys(freqCounts).sort().reverse().slice(0, 30);
+    if (sorted.length === 0) {
+        el.innerHTML = '<div style="font-size:12px;color:#aaa;padding:20px;">暂无训练数据</div>';
+        return;
+    }
+    let html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">最近训练记录</div>' +
+               '<div style="font-size:11px;color:#555;line-height:1.8;">';
+    let byMonth = {};
+    for (const d of sorted) {
+        const m = d.slice(5, 7);
+        if (!byMonth[m]) byMonth[m] = [];
+        byMonth[m].push(d);
+    }
+    for (const m of Object.keys(byMonth).sort().reverse()) {
+        const monthName = monthNames[parseInt(m)];
+        html += '<div style="font-weight:500;margin-top:6px;">' + monthName + '</div>';
+        for (const d of byMonth[m]) {
+            const cnt = freqCounts[d];
+            const day = parseInt(d.slice(8, 10));
+            html += '<span style="margin-right:8px;font-size:11px;">' + day + '日 (' + cnt + '次)</span>';
+        }
+    }
+    html += '</div>';
+    el.innerHTML = html;
+}
+renderFreqTable();// ── Tab switching ──
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', function() {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
