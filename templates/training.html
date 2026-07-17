@@ -237,7 +237,7 @@ function buildFreqGrid() {
         const m = dt.getMonth() + 1;
         if (m !== lastMonth) {
             const prevLabel = monthLabels.length > 0 ? monthLabels.substring(0, monthLabels.lastIndexOf('<')) : '';
-            const gap = (w * 22 - monthLabels.replace(/<[^>]*>/g,'').length * 14);
+            const gap = (w * 22 - monthLabels.replace(/<[^>]*>/g,'').length * 10);
             monthLabels += `<span class="hm-month" style="margin-left:${Math.max(0, gap)}px;">${monthNames[m]}</span>`;
             lastMonth = m;
         }
