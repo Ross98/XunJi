@@ -288,119 +288,35 @@ li { margin: 4px 0; }
     gap: 3px;
 }
 .hm-cell {
-    width: 12px;
-    height: 12px;
-    border-radius: 2px;
-    background: #eee;
+    width: 18px; height: 18px; border-radius: 3px; background: #e8e8e8;
+    font-size: 9px; color: #999; display: flex; align-items: center;
+    justify-content: center; cursor: default;
+    font-weight: 500; line-height: 1; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, monospace;
 }
-.hm-active { background: #1a1a2e; }
-.hm-inactive { background: #f0f0f0; }
-.hm-empty { background: transparent; }
-
-/* ── Frequency heatmap D ── */
+.hm-cell:hover { opacity: 0.8; }
+.hm-inactive { background: #e8e8e8; }
+.hm-empty { background: transparent; pointer-events: none; }
+.hm-col .hm-l1, .hm-l1 { background: #a5d6a7 !important; color: #fff !important; }
+.hm-col .hm-l2, .hm-l2 { background: #66bb6a !important; color: #fff !important; }
+.hm-col .hm-l3, .hm-l3 { background: #2e7d32 !important; color: #fff !important; }
+.hm-col {
+    display: flex; flex-direction: column; gap: 2px;
+}
+.hm-col .hm-cell { width: 18px; height: 18px; }
+.hm-months { display: flex; gap: 3px; margin-bottom: 6px; height: 16px; font-size: 10px; color: #888; }
+.hm-grid { display: flex; gap: 4px; }
+.hm-dows { font-size: 10px; color: #aaa; display: flex; flex-direction: column; gap: 2px; padding-top: 0; }
+.hm-dows span { height: 18px; display: flex; align-items: center; font-size: 9px; color: #999; }
+.hm-legend {
+    display: flex; align-items: center; gap: 16px; margin-top: 12px;
+    font-size: 12px; color: #666; flex-wrap: wrap;
+}
+.hm-legend-cell { width: 14px; height: 14px; border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 4px; }
+.hm-legend-item { display: inline-flex; align-items: center; gap: 4px; }
 .mixed-layout { display: flex; gap: 24px; align-items: flex-start; }
 .mixed-heatmap { flex: 1; }
 .mixed-stats { flex: 0 0 160px; padding-left: 16px; border-left: 1px solid #eee; }
-.hm-months { display: flex; gap: 3px; margin-bottom: 4px; height: 16px; }
-.hm-month { font-size: 10px; color: #888; }
-.hm-grid { display: flex; gap: 3px; }
-.hm-col { display: flex; flex-direction: column; gap: 3px; }
-.hm-cell { width: 14px; height: 14px; border-radius: 2px; background: #eee; }
-.hm-l1 { background: #c8e6c9; }
-.hm-l2 { background: #66bb6a; }
-.hm-l3 { background: #2e7d32; }
-.hm-inactive { background: #f5f5f5; }
-.hm-empty { background: transparent; }
-.hm-legend { display: flex; align-items: center; gap: 12px; margin-top: 8px; font-size: 11px; color: #666; }
-.hm-legend-cell { width: 12px; height: 12px; border-radius: 2px; display: inline-block; margin-right: 3px; }
-.hm-legend-item { display: flex; align-items: center; gap: 3px; }
-
-/* ── Diet / Meal ── */
-.meal-section {
-    margin-bottom: 16px;
-}
-.meal-header {
-    font-size: 14px;
-    font-weight: 600;
-    color: #555;
-    padding: 6px 0;
-    border-bottom: 1px solid #eee;
-    margin-bottom: 6px;
-    display: flex;
-    justify-content: space-between;
-}
-.meal-header .meal-cal {
-    font-weight: 400;
-    color: #888;
-    font-size: 12px;
-}
-.food-row {
-    display: flex;
-    align-items: center;
-    padding: 4px 0;
-    font-size: 13px;
-    border-bottom: 1px solid #f5f5f5;
-}
-.food-row:last-child { border-bottom: none; }
-.food-name { flex: 1; font-weight: 500; }
-.food-amount { flex: 0 0 60px; text-align: right; color: #888; }
-.food-cal { flex: 0 0 50px; text-align: right; color: #888; }
-.food-macros { flex: 0 0 100px; text-align: right; font-size: 11px; color: #aaa; }
-.food-actions { flex: 0 0 50px; text-align: right; }
-.btn-icon {
-    background: none; border: none; cursor: pointer;
-    color: #aaa; font-size: 14px; padding: 2px 4px;
-}
-.btn-icon:hover { color: #333; }
-.btn-icon.danger:hover { color: #e53935; }
-
-/* ── Modal ── */
-.modal-overlay {
-    display: none; position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.4);
-    z-index: 200; align-items: center; justify-content: center;
-}
-.modal-overlay.active { display: flex; }
-.modal-box {
-    background: #fff; border-radius: 8px; padding: 24px;
-    width: 90%; max-width: 480px; max-height: 80vh;
-    overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-}
-.modal-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
-.modal-actions {
-    display: flex; gap: 8px;
-    justify-content: flex-end; margin-top: 16px;
-}
-.form-group { margin-bottom: 12px; }
-.form-group label {
-    display: block; font-size: 12px; color: #888; margin-bottom: 4px;
-}
-.form-group select, .form-group input {
-    width: 100%; padding: 6px 10px; font-size: 14px;
-    border: 1px solid #ddd; border-radius: 4px;
-}
-.search-results {
-    max-height: 200px; overflow-y: auto;
-    border: 1px solid #eee; border-radius: 4px; margin-top: 4px;
-}
-.search-result-item {
-    padding: 6px 10px; font-size: 13px; cursor: pointer;
-    border-bottom: 1px solid #f5f5f5;
-}
-.search-result-item:hover { background: #f0f0f0; }
-.search-result-item.selected { background: #e3f2fd; }
-.search-result-item .sr-name { font-weight: 500; }
-.search-result-item .sr-ntr { font-size: 11px; color: #888; }
-
-/* ── Preview ── */
-.preview-box {
-    background: #f9f9f9; border-radius: 6px;
-    padding: 12px; margin-top: 8px; font-size: 13px;
-}
-.preview-box .pv-row {
-    display: flex; justify-content: space-between; padding: 2px 0;
-}
 
 /* ── Diet Calendar ── */
 .diet-cal-grid {

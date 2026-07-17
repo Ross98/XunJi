@@ -6,7 +6,7 @@
 <title>{% block title %}训记分析{% endblock %}</title>
 <link rel="stylesheet" href="/static/css/app.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
 </head>
 <body>
 <nav class="nav">
@@ -91,17 +91,5 @@ document.addEventListener('DOMContentLoaded', async function() {
 <style>
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
-<script>
-document.addEventListener('click', function(e) {
-    var link = e.target.closest('a');
-    if (link && link.href && !link.hasAttribute('download') && !link.getAttribute('href').startsWith('#') && !link.getAttribute('href').startsWith('javascript:')) {
-        document.getElementById('pageLoading').style.display = 'flex';
-    }
-});
-window.addEventListener('pageshow', function() {
-    var loader = document.getElementById('pageLoading');
-    if (loader) loader.style.display = 'none';
-});
-</script>
 </body>
 </html>
