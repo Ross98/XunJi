@@ -217,6 +217,7 @@ function getIntensityLevel(ds) {
 
 function buildFreqGrid() {
     const today = new Date();
+    const dowOffset = (today.getDay() + 6) % 7; // Monday=0
     const grid = document.getElementById('hmGrid');
     const dows = document.getElementById('hmDow');
     const months = document.getElementById('hmMonths');
@@ -231,7 +232,7 @@ function buildFreqGrid() {
     let monthLabels = '';
     let lastMonth = -1;
     for (let w = 0; w < 13; w++) {
-        const dayOffset = (w - 12) * 7 + 0 - 6;
+        const dayOffset = (w - 12) * 7 + 0 - dowOffset;
         const dt = new Date(today);
         dt.setDate(today.getDate() + dayOffset);
         const m = dt.getMonth() + 1;
@@ -250,7 +251,7 @@ function buildFreqGrid() {
         const col = document.createElement('div');
         col.className = 'hm-col';
         for (let d = 0; d < 7; d++) {
-            const dayOffset = (w - 12) * 7 + d - 6;
+            const dayOffset = (w - 12) * 7 + d - dowOffset;
             const dt = new Date(today);
             dt.setDate(today.getDate() + dayOffset);
             const ds = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
