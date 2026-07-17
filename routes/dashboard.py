@@ -59,6 +59,17 @@ def _chg7(trend: list[dict]) -> Optional[float]:
         return None
     return round(trend[-1]["value"] - trend[-8]["value"], 1)
 
+@router.get("/api/ah-check")
+async def ah_import_check():
+    """Check Apple Health import freshness."""
+    try:
+        import apple_health as _ah
+        counts = _ah.get_import_count()
+        t = counts.get("health_import_time")
+        return {"import_time": t, "ok": True}
+    except Exception as e:
+        return {"import_time": None, "ok": False, "error": str(e)}
+
 
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
