@@ -202,11 +202,11 @@ function renderAnalysisCharts() {
 }
 renderAnalysisCharts();
 
-// ── Heatmap with inline month labels ──
+// ── Heatmap ──
 const freqDates = new Set({{ freq_dates | tojson | safe }});
 const freqCounts = {{ freq_counts | tojson | safe }};
 const monthNames = ['', '一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
-const dowOffset = (today.getDay() + 6) % 7;
+const dowOffset = (new Date().getDay() + 6) % 7;
 
 function getIntensityLevel(ds) {
     const cnt = freqCounts[ds] || 0;
@@ -224,7 +224,6 @@ function buildFreqGrid() {
     const stats = document.getElementById('hmStats');
     if (!grid) return;
 
-    // Day-of-week labels with blank at top for month row
     dows.innerHTML = '<span style="height:18px;"></span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>';
 
     let lastMonth = -1;
@@ -232,25 +231,23 @@ function buildFreqGrid() {
         const col = document.createElement('div');
         col.className = 'hm-col';
 
-        // Month label at top of column
         const firstOffset = (w - 12) * 7 + 0 - dowOffset;
         const firstDt = new Date(today);
         firstDt.setDate(today.getDate() + firstOffset);
         const m = firstDt.getMonth() + 1;
         const monthCell = document.createElement('div');
         monthCell.className = 'hm-month';
-        if (m !== lastMonth) {
-            monthCell.textContent = monthNames[m];
-            lastMonth = m;
-        }
+        if (m !== lastMonth) { monthCell.textContent = monthNames[m]; lastMonth = m; }
         col.appendChild(monthCell);
 
-        // 7 day cells
         for (let d = 0; d < 7; d++) {
             const dayOffset = (w - 12) * 7 + d - dowOffset;
             const dt = new Date(today);
             dt.setDate(today.getDate() + dayOffset);
-            const ds = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+            const y = dt.getFullYear();
+            const mo = String(dt.getMonth()+1).padStart(2,'0');
+            const da = String(dt.getDate()).padStart(2,'0');
+            const ds = y + '-' + mo + '-' + da;
             const cell = document.createElement('div');
             cell.className = 'hm-cell';
             if (dayOffset > 0 || dayOffset < -89) {
@@ -266,191 +263,31 @@ function buildFreqGrid() {
         grid.appendChild(col);
     }
 
-    // Legend
     legend.innerHTML = '<div style="font-size:11px;color:#888;margin-bottom:4px;">频率</div>' +
         '<div class="hm-legend-item"><div class="hm-legend-cell hm-inactive"></div>0次</div>' +
         '<div class="hm-legend-item"><div class="hm-legend-cell hm-l1"></div>1次</div>' +
         '<div class="hm-legend-item"><div class="hm-legend-cell hm-l2"></div>2次</div>' +
         '<div class="hm-legend-item"><div class="hm-legend-cell hm-l3"></div>3次+</div>';
 
-    // Stats
-    let totalSessions = 0, totalDays = 0, maxStreak = 0, curStreak = 0;
+    let total = 0, days = 0, maxS = 0, curS = 0;
     const dates = Object.keys(freqCounts).sort();
-    for (const d of dates) { totalSessions += freqCounts[d]; totalDays++; }
-    const sorted = [...dates].reverse();
-    for (const d of sorted) { if (freqCounts[d] > 0) curStreak++; else break; }
-    let temp = 0;
-    for (const d of dates) {
-        if (freqCounts[d] > 0) temp++;
-        else { maxStreak = Math.max(maxStreak, temp); temp = 0; }
-    }
-    maxStreak = Math.max(maxStreak, temp);
-    if (totalDays > 0) {
+    for (const d of dates) { total += freqCounts[d]; days++; }
+    const rev = [...dates].reverse();
+    for (const d of rev) { if (freqCounts[d] > 0) curS++; else break; }
+    let t = 0;
+    for (const d of dates) { if (freqCounts[d] > 0) t++; else { maxS = Math.max(maxS, t); t = 0; } }
+    maxS = Math.max(maxS, t);
+    if (days > 0) {
         stats.innerHTML = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">最近90天统计</div>' +
-            '<div style="font-size:12px;color:#555;margin-bottom:4px;">总训练: ' + totalSessions + '次</div>' +
-            '<div style="font-size:12px;color:#555;margin-bottom:4px;">训练天数: ' + totalDays + '天</div>' +
-            '<div style="font-size:12px;color:#555;margin-bottom:4px;">最长连续: ' + maxStreak + '天</div>' +
-            '<div style="font-size:12px;color:#555;margin-bottom:4px;">当前连续: ' + curStreak + '天</div>';
+            '<div style="font-size:12px;color:#555;margin-bottom:4px;">总训练: ' + total + '次</div>' +
+            '<div style="font-size:12px;color:#555;margin-bottom:4px;">训练天数: ' + days + '天</div>' +
+            '<div style="font-size:12px;color:#555;margin-bottom:4px;">最长连续: ' + maxS + '天</div>' +
+            '<div style="font-size:12px;color:#555;margin-bottom:4px;">当前连续: ' + curS + '天</div>';
     } else {
         stats.innerHTML = '<div style="font-size:12px;color:#aaa;padding:20px;">暂无训练数据</div>';
     }
 }
-buildFreqGrid();// ── Tab switching ──
-document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        this.classList.add('active');
-        document.getElementById('tab-' + this.dataset.tab).classList.add('active');
-    });
-});
-
-// ── Volume data ──
-const volData = {{ volume_data | tojson | safe }};
-const volLabels = Object.keys(volData).sort();
-const volValues = volLabels.map(d => volData[d]);
-
-function renderVolume(range) {
-    const n = Math.min(range, volLabels.length);
-    const labels = volLabels.slice(-n);
-    const values = labels.map(d => volData[d] || 0);
-    const ctx = document.getElementById('volChart');
-    if (window._volChart) window._volChart.destroy();
-    if (labels.length === 0) return;
-    window._volChart = new Chart(ctx, {
-        type: 'line',
-        data: { labels, datasets: [{ label: '容量 (kg)', data: values, borderColor: '#1a1a2e', tension: 0.3, fill: false, pointRadius: 3 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
-    });
-}
-document.querySelectorAll('.btn-range').forEach(btn => {
-    btn.addEventListener('click', function() {
-        document.querySelectorAll('.btn-range').forEach(b => b.classList.remove('active'));
-        this.classList.add('active');
-        renderVolume(parseInt(this.dataset.range));
-    });
-});
-renderVolume(30);
-
-// ── Training Analysis ──
-const analysisData = {{ analysis_data | tojson | safe }};
-
-function renderAnalysisCharts() {
-    // Duration trend
-    const durData = analysisData.duration || [];
-    if (durData.length > 0) {
-        new Chart(document.getElementById('durChart'), {
-            type: 'line',
-            data: { labels: durData.map(d=>d.date), datasets: [{ label: '时长 (分钟)', data: durData.map(d=>d.duration_min), borderColor: '#1a1a2e', tension: 0.3, fill: false, pointRadius: 4 }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: '分钟' } } } }
-        });
-    } else {
-        document.querySelector('#tab-analysis .chart-container:first-child').innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无时长数据</p>';
-    }
-    
-    // Calories trend
-    const calData = analysisData.calories || [];
-    if (calData.length > 0) {
-        new Chart(document.getElementById('calChart'), {
-            type: 'bar',
-            data: { labels: calData.map(d=>d.date), datasets: [{ label: '热量 (kcal)', data: calData.map(d=>d.calories), backgroundColor: '#4caf50' }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'kcal' } } } }
-        });
-    } else {
-        document.querySelectorAll('#tab-analysis .chart-container')[1].innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无热量数据</p>';
-    }
-    
-    // Heart rate
-    const hrData = analysisData.heart_rate || [];
-    if (hrData.length > 0) {
-        new Chart(document.getElementById('hrChart'), {
-            type: 'line',
-            data: {
-                labels: hrData.map(d=>d.date),
-                datasets: [
-                    { label: '平均心率', data: hrData.map(d=>d.avg_hr), borderColor: '#2196f3', tension: 0.3, fill: false, pointRadius: 4 },
-                    { label: '最高心率', data: hrData.map(d=>d.max_hr), borderColor: '#e53935', tension: 0.3, fill: false, pointRadius: 4 }
-                ]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'bpm' } } } }
-        });
-    } else {
-        document.querySelectorAll('#tab-analysis .chart-container')[2].innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无心率数据</p>';
-    }
-    
-    // Type distribution
-    const typeData = (analysisData.type_dist || []).filter(d => d.name !== '力量训练');
-    if (typeData.length > 0) {
-        const colors = ['#1a1a2e','#e53935','#4caf50','#ff9800','#2196f3','#9c27b0','#795548'];
-        const dims = ['训练次数', '总时长 (小时)', '每次时长 (分)'];
-        const units = ['次', '小时', '分'];
-        const rColors = ['#2196f3','#e53935','#4caf50','#ff9800','#9c27b0','#795548'];
-        const rawVals = typeData.map(d=>[
-            d.count,
-            d.duration_min ? +(d.duration_min/60).toFixed(1) : 0,
-            d.count>0 ? Math.round(d.duration_min/d.count) : 0
-        ]);
-        const maxes = dims.map((_,i)=>Math.max(...rawVals.map(v=>v[i]),1));
-        const radSets = typeData.map((d,i)=>({
-            label: d.name,
-            data: rawVals[i].map((v,j)=>+(v/maxes[j]*100).toFixed(1)),
-            _orig: rawVals[i],
-            borderColor: rColors[i],
-            backgroundColor: rColors[i]+'22',
-            pointRadius: 4
-        }));
-        new Chart(document.getElementById('typeChart'), {
-            type: 'radar',
-            data: {labels:dims, datasets:radSets},
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: {
-                    legend: {position:'bottom'},
-                    tooltip: {callbacks: {label: ctx=>dims[ctx.dataIndex]+': '+ctx.dataset._orig[ctx.dataIndex]+units[ctx.dataIndex]}}
-                },
-                scales: {r: {beginAtZero:true, max:110, ticks:{stepSize:20, callback:v=>v+'%'}}}
-            }
-        });
-    } else {
-        document.querySelectorAll('#tab-analysis .chart-container')[3].innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无类型数据</p>';
-    }
-}
-renderAnalysisCharts();
-
-// ── Training frequency table ──
-const freqDates = new Set({{ freq_dates | tojson | safe }});
-const freqCounts = {{ freq_counts | tojson | safe }};
-const monthNames = ['', '一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
-
-function renderFreqTable() {
-    const el = document.getElementById('hmStats');
-    if (!el) return;
-    const sorted = Object.keys(freqCounts).sort().reverse().slice(0, 30);
-    if (sorted.length === 0) {
-        el.innerHTML = '<div style="font-size:12px;color:#aaa;padding:20px;">暂无训练数据</div>';
-        return;
-    }
-    let html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">最近训练记录</div>' +
-               '<div style="font-size:11px;color:#555;line-height:1.8;">';
-    let byMonth = {};
-    for (const d of sorted) {
-        const m = d.slice(5, 7);
-        if (!byMonth[m]) byMonth[m] = [];
-        byMonth[m].push(d);
-    }
-    for (const m of Object.keys(byMonth).sort().reverse()) {
-        const monthName = monthNames[parseInt(m)];
-        html += '<div style="font-weight:500;margin-top:6px;">' + monthName + '</div>';
-        for (const d of byMonth[m]) {
-            const cnt = freqCounts[d];
-            const day = parseInt(d.slice(8, 10));
-            html += '<span style="margin-right:8px;font-size:11px;">' + day + '日 (' + cnt + '次)</span>';
-        }
-    }
-    html += '</div>';
-    el.innerHTML = html;
-}
-renderFreqTable();
+buildFreqGrid();
 
 // ── Movement tracker ──
 const movSelect = document.getElementById('movementSelect');

@@ -295,11 +295,6 @@ li { margin: 4px 0; }
     font-family: -apple-system, BlinkMacSystemFont, monospace;
 }
 .hm-cell:hover { opacity: 0.8; }
-.hm-month {
-    height: 18px; font-size: 9px; color: #999; text-align: center;
-    display: flex; align-items: center; justify-content: center;
-}
-
 .hm-inactive { background: #e8e8e8; }
 .hm-empty { background: transparent; pointer-events: none; }
 .hm-col .hm-l1, .hm-l1 { background: #a5d6a7 !important; color: #fff !important; }
