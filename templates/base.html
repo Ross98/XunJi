@@ -48,43 +48,8 @@ document.addEventListener('DOMContentLoaded', async function() {
 });
 
 
-document.getElementById('importHealthBtn').addEventListener('click', async function() {
-    var btn = this;
-    btn.textContent = '⏳ 导入中...';
-    btn.disabled = true;
-    try {
-        var r = await fetch('/health/import', {method:'POST'});
-        var d = await r.json();
-        if (d.status !== 'ok') { alert('导入失败: ' + (d.message||'')); }
-        else if (d.total > 0) { location.reload(); }
-        else { alert('数据已是最新'); }
-    } catch(e) {
-        alert('导入失败: ' + e.message);
-    } finally {
-        btn.textContent = '🍎 导入 AH';
-        btn.disabled = false;
-    }
-});
-
 </script>
 
-document.getElementById('importHealthBtn').addEventListener('click', async function() {
-    var btn = this;
-    btn.textContent = '⏳ 导入中...';
-    btn.disabled = true;
-    try {
-        var r = await fetch('/health/import', {method:'POST'});
-        var d = await r.json();
-        if (d.status !== 'ok') { alert('导入失败: ' + (d.message||'')); }
-        else if (d.total > 0) { location.reload(); }
-        else { alert('数据已是最新'); }
-    } catch(e) {
-        alert('导入失败: ' + e.message);
-    } finally {
-        btn.textContent = '🍎 导入 AH';
-        btn.disabled = false;
-    }
-});
 
 <main class="main">
     {% block content %}{% endblock %}
