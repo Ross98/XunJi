@@ -48,7 +48,7 @@
     <div class="tab-panel" id="tab-frequency">
         <div class="mixed-layout">
             <div class="mixed-heatmap">
-                <div class="hm-months" id="hmMonths" style="display:none;"></div>
+                <div class="hm-months" id="hmMonths"></div>
                 <div style="display:flex;gap:16px;">
                     <div class="hm-dows" id="hmDow" style="font-size:10px;color:#888;display:flex;flex-direction:column;gap:3px;padding-top:2px;"></div>
                     <div class="hm-grid" id="hmGrid"></div>
@@ -224,9 +224,22 @@ function buildFreqGrid() {
     const stats = document.getElementById('hmStats');
     if (!grid) return;
 
-    dows.innerHTML = '<span style="height:18px;"></span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>';
+    dows.innerHTML = '<span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>';
 
-    let lastMonth = -1;
+    // Month labels row
+    const monthsEl = document.getElementById('hmMonths');
+    monthsEl.style.display = 'flex';
+    monthsEl.innerHTML = '';
+    for (let w = 0; w < 13; w++) {
+        const span = document.createElement('span');
+        const firstOffset = (w - 12) * 7 + 0 - dowOffset;
+        const firstDt = new Date(today);
+        firstDt.setDate(today.getDate() + firstOffset);
+        const m = firstDt.getMonth() + 1;
+        if (m !== lastMonth) { span.textContent = monthNames[m]; lastMonth = m; }
+        monthsEl.appendChild(span);
+    }
+
     for (let w = 0; w < 13; w++) {
         const col = document.createElement('div');
         col.className = 'hm-col';
@@ -235,10 +248,7 @@ function buildFreqGrid() {
         const firstDt = new Date(today);
         firstDt.setDate(today.getDate() + firstOffset);
         const m = firstDt.getMonth() + 1;
-        const monthCell = document.createElement('div');
-        monthCell.className = 'hm-month';
-        if (m !== lastMonth) { monthCell.textContent = monthNames[m]; lastMonth = m; }
-        col.appendChild(monthCell);
+
 
         for (let d = 0; d < 7; d++) {
             const dayOffset = (w - 12) * 7 + d - dowOffset;
