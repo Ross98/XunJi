@@ -121,7 +121,6 @@ def import_all(progress_callback=None, batch_size=5000):
         elem.clear()
 
         if len(record_batch) >= batch_size or len(workout_batch) >= batch_size or len(sleep_batch) >= batch_size:
-            total += len(record_batch) + len(workout_batch) + len(sleep_batch)
             _bulk_insert(record_batch, workout_batch, sleep_batch)
             record_batch.clear()
             workout_batch.clear()
@@ -130,7 +129,6 @@ def import_all(progress_callback=None, batch_size=5000):
                 progress_callback(total)
 
     if record_batch or workout_batch or sleep_batch:
-        total += len(record_batch) + len(workout_batch) + len(sleep_batch)
         _bulk_insert(record_batch, workout_batch, sleep_batch)
 
     # 记录导入时间到 xunji_cache.sqlite
