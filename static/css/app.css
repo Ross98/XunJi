@@ -304,7 +304,7 @@ li { margin: 4px 0; }
     display: flex; flex-direction: column; gap: 2px;
 }
 .hm-col .hm-cell { width: 18px; height: 18px; }
-.hm-months { display: flex; gap: 4px; margin-bottom: 2px; height: 18px; font-size: 9px; color: #999; }
+.hm-months { display: none !important; }
 .hm-months span { width: 18px; text-align: center; line-height: 18px; flex-shrink: 0; }
 .hm-grid { display: flex; gap: 4px; }
 .hm-dows { font-size: 10px; color: #aaa; display: flex; flex-direction: column; gap: 2px; padding-top: 0; }

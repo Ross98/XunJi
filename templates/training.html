@@ -227,20 +227,6 @@ function buildFreqGrid() {
 
     dows.innerHTML = '<span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>';
 
-    // Month labels row
-    const monthsEl = document.getElementById('hmMonths');
-    monthsEl.style.display = 'flex';
-    monthsEl.innerHTML = '';
-    for (let w = 0; w < 13; w++) {
-        const span = document.createElement('span');
-        const firstOffset = (w - 12) * 7 + 0 - dowOffset;
-        const firstDt = new Date(today);
-        firstDt.setDate(today.getDate() + firstOffset);
-        const m = firstDt.getMonth() + 1;
-        if (m !== lastMonth) { span.textContent = monthNames[m]; lastMonth = m; }
-        monthsEl.appendChild(span);
-    }
-
     for (let w = 0; w < 13; w++) {
         const col = document.createElement('div');
         col.className = 'hm-col';
