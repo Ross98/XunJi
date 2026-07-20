@@ -223,6 +223,7 @@ function buildFreqGrid() {
     const legend = document.getElementById('hmLegend');
     const stats = document.getElementById('hmStats');
     if (!grid) return;
+    let lastMonth = -1;
 
     dows.innerHTML = '<span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>';
 
