@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import calendar
 from datetime import date, datetime, timedelta
 
@@ -17,6 +18,41 @@ from analysis import (
 from movements_cn import apply_movement_cn_to_trains
 
 router = APIRouter(tags=["training"])
+
+_history_backfill_task: asyncio.Task | None = None
+
+
+async def _backfill_training_history(
+    ds,
+    cache,
+    *,
+    days: int = 60,
+    delay_seconds: float = 6.0,
+    today: date | None = None,
+) -> None:
+    """Fill missing recent training cache entries one request at a time."""
+    end_date = today or date.today()
+    for offset in range(days):
+        training_date = (end_date - timedelta(days=offset)).isoformat()
+        if (
+            cache.get(f"training:{training_date}:True") is not None
+            or cache.get(f"training:{training_date}:False") is not None
+        ):
+            continue
+        try:
+            await ds.get_training(training_date, full=True)
+        except Exception:
+            pass
+        await asyncio.sleep(delay_seconds)
+
+
+def _ensure_training_history_backfill(ds, cache) -> None:
+    """Start one shared background history backfill task when needed."""
+    global _history_backfill_task
+    if _history_backfill_task is None or _history_backfill_task.done():
+        _history_backfill_task = asyncio.create_task(
+            _backfill_training_history(ds, cache)
+        )
 
 
 def _parse_date_from_cache_key(key: str) -> str | None:
@@ -223,20 +259,11 @@ async def training_detail_fragment(request: Request, dt: str):
 @router.get("/training", response_class=HTMLResponse)
 async def training_page(request: Request):
     ds = get_data_service()
+    cache = get_cache()
     today = date.today()
     today_str = today.isoformat()
 
-    # Warm cache: fetch recent dates so charts have data
-    warm_dates = set()
-    for i in range(14):
-        d = (today - timedelta(days=i)).isoformat()
-        try:
-            await ds.get_training(d, full=True)
-            warm_dates.add(d)
-        except Exception:
-            pass
-
-    # Calendar data (after warming so markers are accurate)
+    # Calendar data from the cache currently available
     active_dates = set(_get_cached_training_dates())
     day_intensity = _compute_day_intensities()
     cal_data = _build_calendar(today.year, today.month, active_dates, day_intensity)
@@ -247,6 +274,7 @@ async def training_page(request: Request):
         today_data = await ds.get_training(today_str, full=True)
     except Exception:
         pass
+    _ensure_training_history_backfill(ds, cache)
     today_trains = today_data.get("res", {}).get("trains", [])
     if not today_trains:
         today_trains = today_data.get("trains", [])
