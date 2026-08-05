@@ -59,6 +59,26 @@ def _chg7(trend: list[dict]) -> Optional[float]:
         return None
     return round(trend[-1]["value"] - trend[-8]["value"], 1)
 
+
+def _extract_trains(data: object) -> list[dict]:
+    """Return trains from supported API shapes; tolerate application errors."""
+    if not isinstance(data, dict):
+        return []
+    res = data.get("res")
+    if isinstance(res, dict) and isinstance(res.get("trains"), list):
+        return res["trains"]
+    trains = data.get("trains")
+    return trains if isinstance(trains, list) else []
+
+
+async def _get_training_or_empty(ds, training_date: str) -> dict:
+    """Keep dashboard available when training API is temporarily unavailable."""
+    try:
+        return await ds.get_training(training_date)
+    except Exception:
+        return {"res": {"trains": []}}
+
+
 @router.get("/api/ah-check")
 async def ah_import_check():
     """Check Apple Health import freshness."""
@@ -78,8 +98,8 @@ async def dashboard(request: Request):
     yesterday = (date.today() - timedelta(days=1)).isoformat()
 
     # ── 训记数据: 缓存优先 + 后台刷新 ──
-    training_data = await ds.get_training(yesterday)
-    trains = training_data.get("res", {}).get("trains", [])
+    training_data = await _get_training_or_empty(ds, yesterday)
+    trains = _extract_trains(training_data)
     summary = summarize_training(trains)
 
     # 训练类型标签 & set 数

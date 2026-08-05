@@ -12,13 +12,25 @@ class DataService:
 
     # ── Training ──
 
+    @staticmethod
+    def _is_valid_training_response(data: object) -> bool:
+        if not isinstance(data, dict):
+            return False
+        res = data.get("res")
+        return (
+            isinstance(res, dict) and isinstance(res.get("trains", []), list)
+        ) or isinstance(data.get("trains"), list)
+
     async def get_training(self, date: str, full: bool = False) -> dict:
         cache_key = f"training:{date}:{full}"
         cached = self._cache.get(cache_key)
-        if cached is not None:
+        if self._is_valid_training_response(cached):
             return cached
+        if cached is not None:
+            self._cache.delete(cache_key)
         data = await self._client.fetch_training(date, full)
-        self._cache.set(cache_key, data)
+        if self._is_valid_training_response(data):
+            self._cache.set(cache_key, data)
         return data
 
     # ── Diet ──
