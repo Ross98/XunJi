@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio
 import calendar
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -20,6 +20,52 @@ from movements_cn import apply_movement_cn_to_trains
 router = APIRouter(tags=["training"])
 
 _history_backfill_task: asyncio.Task | None = None
+_EMPTY_TRAINING_CACHE_TTL = timedelta(minutes=30)
+_EMPTY_TRAINING_RECHECK_DAYS = 7
+
+
+def _cached_training_has_data(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+    res = data.get("res")
+    if isinstance(res, dict) and isinstance(res.get("trains"), list):
+        return bool(res["trains"])
+    return isinstance(data.get("trains"), list) and bool(data["trains"])
+
+
+def _should_skip_training_backfill(cache, training_date: str, now: datetime) -> bool:
+    """Keep populated caches; recheck only recent empty entries after their TTL."""
+    keys = (
+        f"training:{training_date}:True",
+        f"training:{training_date}:False",
+    )
+    empty_entries = []
+    for key in keys:
+        cached = cache.get(key)
+        if cached is None:
+            continue
+        if _cached_training_has_data(cached):
+            return True
+        empty_entries.append(key)
+
+    if not empty_entries:
+        return False
+    if (now.date() - date.fromisoformat(training_date)).days > _EMPTY_TRAINING_RECHECK_DAYS:
+        return True
+
+    for key in empty_entries:
+        mtime = cache.get_mtime(key)
+        if not mtime:
+            return True
+        try:
+            cached_at = datetime.fromisoformat(mtime)
+        except ValueError:
+            return True
+        if cached_at.tzinfo is None:
+            cached_at = cached_at.replace(tzinfo=timezone.utc)
+        if now - cached_at <= _EMPTY_TRAINING_CACHE_TTL:
+            return True
+    return False
 
 
 async def _backfill_training_history(
@@ -29,16 +75,21 @@ async def _backfill_training_history(
     days: int = 60,
     delay_seconds: float = 6.0,
     today: date | None = None,
+    now: datetime | None = None,
 ) -> None:
     """Fill missing recent training cache entries one request at a time."""
-    end_date = today or date.today()
+    current_time = now or datetime.now(timezone.utc)
+    end_date = today or current_time.date()
     for offset in range(days):
         training_date = (end_date - timedelta(days=offset)).isoformat()
-        if (
-            cache.get(f"training:{training_date}:True") is not None
-            or cache.get(f"training:{training_date}:False") is not None
-        ):
+        if _should_skip_training_backfill(cache, training_date, current_time):
             continue
+        for key in (
+            f"training:{training_date}:True",
+            f"training:{training_date}:False",
+        ):
+            if cache.get(key) is not None:
+                cache.delete(key)
         try:
             await ds.get_training(training_date, full=True)
         except Exception:
