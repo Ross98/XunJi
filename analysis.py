@@ -534,9 +534,17 @@ def body_changes(records: list[dict]) -> dict[str, float]:
     return changes
 
 
-def calculate_bmi(weight_kg: Optional[float], height_cm: float = 170.0) -> Optional[float]:
+def calculate_bmi(
+    weight_kg: Optional[Union[float, str]], height_cm: Union[float, str] = 170.0
+) -> Optional[float]:
     """BMI = weight(kg) / (height(m))². Default height 170cm."""
     if weight_kg is None:
         return None
-    height_m = height_cm / 100.0
-    return round(weight_kg / (height_m * height_m), 1)
+    try:
+        weight = float(weight_kg)
+        height_m = float(height_cm) / 100.0
+    except (TypeError, ValueError):
+        return None
+    if height_m <= 0:
+        return None
+    return round(weight / (height_m * height_m), 1)

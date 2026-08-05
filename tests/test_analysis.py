@@ -314,3 +314,9 @@ def test_get_latest_weight_only_bodyfat():
         {"datestr": "2026-06-07", "type": "bodyfat", "value": 18.0},
     ]
     assert get_latest_weight(records) is None
+
+
+def test_calculate_bmi_accepts_numeric_string_weight():
+    from analysis import calculate_bmi
+
+    assert calculate_bmi("70.5", 170) == 24.4
