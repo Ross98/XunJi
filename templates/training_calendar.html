@@ -17,8 +17,8 @@
             {% if d.day == 0 %}
             <td class="cal-empty"></td>
             {% else %}
-            {% if d.has_data and not d.is_today %}
-            <td class="cal-day" style="background: rgba(220,50,50,{{ 0.15 + d.intensity * 0.7 }});color:#fff;"
+            {% if d.has_data %}
+            <td class="cal-day cal-has-data{% if d.is_today %} cal-today{% endif %}" style="background: rgba(220,50,50,{{ 0.15 + d.intensity * 0.7 }});color:#fff;"
             {% elif d.is_today %}
             <td class="cal-day cal-today"
             {% else %}
@@ -27,7 +27,9 @@
                 hx-get="/training/{{ d.date_str }}"
                 hx-target="#training-detail"
                 hx-swap="innerHTML"
-                hx-trigger="click">
+                hx-trigger="click, keyup[key=='Enter']"
+                role="button" tabindex="0" data-date="{{ d.date_str }}"
+                aria-label="{{ d.date_str }}{% if d.has_data %} 有训练记录{% else %} 无训练记录{% endif %}">
                 {{ d.day }}
             </td>
             {% endif %}

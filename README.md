@@ -1,6 +1,7 @@
 <p align="center">
   <img src="static/img/dashboard.png" alt="寻迹仪表盘" width="100%">
 </p>
+<p align="center"><sub>截图摄于饮食模块停用前；当前导航不再提供饮食入口。</sub></p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
@@ -23,7 +24,6 @@
 - **恢复指标** — HRV、静息心率、VO₂Max 最新值
 - **今日活动** — 步数、活动分钟、站立时间（取前一日数据）
 - **趋势图表** — HRV / 静息心率 / VO₂Max 近 90 天折线图（独立卡片）
-- **健康评分** — 由 HRV / RHR / VO₂ / 步数 / 运动融合计算
 
 ### 恢复分析
 - 训练日 vs 休息日的 HRV 对比
@@ -35,10 +35,9 @@
 - 数据来源标记：训记 / 🍎
 
 ### 训练计划增强
-- 热量赤字分析（基础代谢 + 活动消耗 - 饮食摄入）
 - 基于 Apple Health 恢复状态（HRV / 静息心率）的强度建议
 - 动作分类：推/拉/腿/核心/有氧 自动归类
-- 赤字达标/缺口/剩余可视化
+- 训练部位缺口与训练间隔可视化
 
 ### 睡眠分析
 - Apple Health 睡眠阶段导入（核心/深度/REM）
@@ -50,10 +49,9 @@
 | --- | --- |
 | **仪表盘** | 训练摘要、身体数据、健康指标、恢复分析 |
 | **训练记录** | 日/周/月/年维度、日历视图、分析报告 |
-| **饮食追踪** | 三餐记录、营养素统计、CRUD |
 | **身体数据** | 体重/体脂/BMI（训记 + Apple Health 融合） |
 | **健康数据** | HRV / 静息心率 / VO₂Max 趋势、睡眠分析 |
-| **训练计划** | 自动生成、赤字分析、恢复上下文 |
+| **训练计划** | 自动生成、部位缺口分析、恢复上下文 |
 
 ## 快速开始
 
@@ -68,9 +66,9 @@ cp .env.example .env   # 或手动创建
 | 变量 | 说明 |
 | --- | --- |
 | `XUNJI_API_KEY` | 训练数据 API Key |
-| `XUNJI_FOOD_API_KEY` | 饮食数据 API Key |
-| `XUNJI_FOOD_SEARCH_API_KEY` | 食物搜索 API Key |
 | `XUNJI_BODY_API_KEY` | 身体数据 API Key |
+
+`.env` 会在应用启动时自动加载。饮食模块已经停用，不再需要饮食相关 API Key。
 
 ### 2. 导入 Apple Health 数据
 
@@ -80,8 +78,10 @@ cp .env.example .env   # 或手动创建
 ### 3. 本地运行
 
 ```bash
-pip install -r requirements.txt
-uvicorn app:app --reload
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m uvicorn app:app --reload --host 127.0.0.1
 ```
 
 打开 http://localhost:8000
@@ -90,7 +90,7 @@ uvicorn app:app --reload
 
 ```bash
 docker build -t xunji .
-docker run -p 8000:8000 --env-file .env xunji
+docker run -p 127.0.0.1:8000:8000 --env-file .env xunji
 ```
 
 ## 项目结构
@@ -109,7 +109,7 @@ docker run -p 8000:8000 --env-file .env xunji
 ├── routes/                 # 路由模块
 │   ├── dashboard.py        # 仪表盘
 │   ├── training.py         # 训练记录
-│   ├── diet.py             # 饮食追踪
+│   ├── diet.py             # 已停用的饮食模块（仅保留历史代码）
 │   ├── body.py             # 身体数据
 │   ├── health.py           # Apple Health 数据
 │   └── plan.py             # 训练计划
@@ -130,8 +130,16 @@ docker run -p 8000:8000 --env-file .env xunji
 
 ## 数据
 
-- **xunji_cache.sqlite** — 训记 API 响应缓存（自动过期）
+- **xunji_cache.sqlite** — 训记 API 响应缓存（训练空结果会按策略重新验证）
 - **apple_health_cache.sqlite** — Apple Health 数据缓存（一次性导入）
+
+## 运行范围
+
+这是个人本地应用，管理和导入接口没有用户账户体系。请只监听本机地址；如需跨设备或公网访问，应先在反向代理层增加认证和 HTTPS。
+
+## 已停用模块
+
+饮食数据依赖人工估算，当前不参与任何页面、统计或启动配置。相关路由、模板、分析函数和历史设计文档仅作为旧实现存档，不会在应用中注册。
 
 ## 资料
 

@@ -3,47 +3,325 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta id="themeColorMeta" name="theme-color" content="#1a1a2e">
+<meta name="application-name" content="训记分析">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>{% block title %}训记分析{% endblock %}</title>
-<link rel="stylesheet" href="/static/css/app.css">
+<link rel="icon" href="/static/icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png">
+<link rel="manifest" href="/static/site.webmanifest">
+<script>
+(function() {
+    const THEME_STORAGE_KEY = 'xunji_theme_mode';
+    let mode = 'system';
+    try { mode = localStorage.getItem(THEME_STORAGE_KEY) || 'system'; } catch (error) {}
+    if (!['system', 'light', 'dark'].includes(mode)) mode = 'system';
+    const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.themeMode = mode;
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+})();
+</script>
+<link rel="stylesheet" href="/static/css/app.css?v=20260809-theme-picker">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<script>
+(function() {
+    const THEME_STORAGE_KEY = 'xunji_theme_mode';
+    const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+    let themeMode = document.documentElement.dataset.themeMode || 'system';
+
+    function resolvedDarkMode() {
+        return themeMode === 'dark' || (themeMode === 'system' && systemTheme.matches);
+    }
+
+    function themeColors() {
+        const styles = getComputedStyle(document.documentElement);
+        const dark = document.documentElement.dataset.theme === 'dark';
+        return {
+            dark: dark,
+            text: styles.getPropertyValue('--chart-text').trim() || (dark ? '#b8c1d1' : '#667085'),
+            grid: styles.getPropertyValue('--chart-grid').trim() || (dark ? 'rgba(184,193,209,.17)' : 'rgba(43,48,64,.12)'),
+            surface: styles.getPropertyValue('--surface').trim() || (dark ? '#151c2e' : '#ffffff'),
+            border: styles.getPropertyValue('--border-color').trim() || (dark ? '#344057' : '#dfe3ea'),
+        };
+    }
+
+    const darkChartPalette = {
+        '#1a1a2e': '#9aaaff',
+        '#b8364d': '#ff7890',
+        '#e53935': '#ff7b72',
+        '#388e3c': '#81c784',
+        '#2e7d32': '#81c784',
+        '#2a7bb5': '#64b5f6',
+        '#239b56': '#69d391',
+        '#2196f3': '#64b5f6',
+        '#9c27b0': '#ce93d8',
+        '#795548': '#bcaaa4',
+    };
+
+    function mapChartColor(value, dark) {
+        if (Array.isArray(value)) return value.map(function(item) { return mapChartColor(item, dark); });
+        if (!dark || typeof value !== 'string') return value;
+        const normalized = value.toLowerCase();
+        const base = normalized.slice(0, 7);
+        return darkChartPalette[base] ? darkChartPalette[base] + value.slice(7) : value;
+    }
+
+    function retintChart(chart, colors) {
+        chart.data.datasets.forEach(function(dataset) {
+            const properties = ['borderColor', 'backgroundColor', 'pointBackgroundColor', 'pointBorderColor', 'hoverBackgroundColor', 'hoverBorderColor'];
+            const originals = dataset._xunjiThemeOriginals || (dataset._xunjiThemeOriginals = {});
+            properties.forEach(function(property) {
+                if (dataset[property] === undefined) return;
+                if (!(property in originals)) originals[property] = dataset[property];
+                dataset[property] = mapChartColor(originals[property], colors.dark);
+            });
+        });
+        Object.values(chart.options.scales || {}).forEach(function(scale) {
+            if (scale.grid) scale.grid.color = colors.grid;
+            if (scale.angleLines) scale.angleLines.color = colors.grid;
+            if (scale.ticks) {
+                scale.ticks.color = colors.text;
+                scale.ticks.backdropColor = colors.surface;
+            }
+            if (scale.pointLabels) scale.pointLabels.color = colors.text;
+            if (scale.title) scale.title.color = colors.text;
+        });
+        const plugins = chart.options.plugins || (chart.options.plugins = {});
+        const legend = plugins.legend || (plugins.legend = {});
+        const labels = legend.labels || (legend.labels = {});
+        labels.color = colors.text;
+        const tooltip = plugins.tooltip || (plugins.tooltip = {});
+        Object.assign(tooltip, {
+            backgroundColor: colors.surface,
+            titleColor: colors.text,
+            bodyColor: colors.text,
+            borderColor: colors.border,
+            borderWidth: 1,
+        });
+    }
+
+    if (window.Chart) {
+        Chart.register({
+            id: 'xunjiSystemTheme',
+            beforeUpdate: function(chart) { retintChart(chart, themeColors()); },
+        });
+    }
+
+    function applyTheme() {
+        const dark = resolvedDarkMode();
+        document.documentElement.dataset.themeMode = themeMode;
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        const colors = themeColors();
+        const themeMeta = document.getElementById('themeColorMeta');
+        if (themeMeta) themeMeta.content = colors.dark ? '#080d1b' : '#1a1a2e';
+        const picker = document.getElementById('themeModeSelect');
+        if (picker) picker.value = themeMode;
+        if (!window.Chart) return;
+
+        Chart.defaults.color = colors.text;
+        Chart.defaults.borderColor = colors.grid;
+        Chart.defaults.plugins.legend.labels.color = colors.text;
+        Object.assign(Chart.defaults.plugins.tooltip, {
+            backgroundColor: colors.surface,
+            titleColor: colors.text,
+            bodyColor: colors.text,
+            borderColor: colors.border,
+            borderWidth: 1,
+        });
+
+        Object.values(Chart.instances || {}).forEach(function(chart) {
+            retintChart(chart, colors);
+            chart.update('none');
+        });
+    }
+
+    function setThemeMode(mode) {
+        if (!['system', 'light', 'dark'].includes(mode)) return;
+        themeMode = mode;
+        try { localStorage.setItem(THEME_STORAGE_KEY, mode); } catch (error) {}
+        applyTheme();
+    }
+
+    function bindThemePicker() {
+        const picker = document.getElementById('themeModeSelect');
+        if (!picker || picker.dataset.bound) return;
+        picker.dataset.bound = 'true';
+        picker.value = themeMode;
+        picker.addEventListener('change', function() { setThemeMode(picker.value); });
+    }
+
+    window.XUNJI_THEME = { applyCharts: applyTheme, current: themeColors, setMode: setThemeMode };
+    applyTheme();
+    systemTheme.addEventListener('change', applyTheme);
+    document.addEventListener('DOMContentLoaded', function() {
+        bindThemePicker();
+        applyTheme();
+    }, { once: true });
+    window.addEventListener('load', applyTheme, { once: true });
+})();
+</script>
 </head>
 <body>
+{% set current_path = request.url.path if request is defined and request else '' %}
 <nav class="nav">
-    <a href="/" class="nav-brand">训记分析</a>
+    <a href="/" class="nav-brand{% if current_path == '/' %} active{% endif %}"{% if current_path == '/' %} aria-current="page"{% endif %}>训记分析</a>
     <div class="nav-links">
-        <a href="/training" class="nav-link">训练</a>
-        <a href="/body" class="nav-link">身体</a>
-        <a href="/health" class="nav-link">健康</a>
-        <a href="/plan" class="nav-link">规划</a>
-        <button onclick="refreshAll()" class="btn nav-link" style="background:none;border:none;cursor:pointer;color:#ccc;font-size:15px;padding:4px 8px;" title="刷新缓存">↻</button>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;font-size:10px;color:#777;line-height:1.3;white-space:nowrap;">
-            <span id="refreshHealthTs"></span>
-            <span id="refreshXunjiTs"></span>
-        </div>
+        <a href="/training" class="nav-link{% if current_path.startswith('/training') %} active{% endif %}"{% if current_path.startswith('/training') %} aria-current="page"{% endif %}>训练</a>
+        <a href="/body" class="nav-link{% if current_path.startswith('/body') %} active{% endif %}"{% if current_path.startswith('/body') %} aria-current="page"{% endif %}>身体</a>
+        <a href="/health" class="nav-link{% if current_path.startswith('/health') %} active{% endif %}"{% if current_path.startswith('/health') %} aria-current="page"{% endif %}>健康</a>
+        <a href="/plan" class="nav-link{% if current_path.startswith('/plan') %} active{% endif %}"{% if current_path.startswith('/plan') %} aria-current="page"{% endif %}>规划</a>
+        <label class="theme-picker" title="选择界面主题">
+            <span class="visually-hidden">界面主题</span>
+            <select id="themeModeSelect" class="theme-select" aria-label="界面主题">
+                <option value="system">跟随系统</option>
+                <option value="light">浅色</option>
+                <option value="dark">深色</option>
+            </select>
+        </label>
+        <button id="refreshDataBtn" onclick="refreshAll()" class="btn nav-refresh-btn" type="button" title="清理训记缓存并重新读取数据">↻ 刷新训记</button>
+        <details class="data-status" id="dataStatus">
+            <summary>数据状态</summary>
+            <div class="data-status-popover">
+                <div><span>Apple Health</span><strong id="refreshHealthTs">未导入</strong></div>
+                <div><span>训记</span><strong id="refreshXunjiTs">等待读取</strong></div>
+                <a href="/health">管理健康数据 →</a>
+            </div>
+        </details>
+        <button id="exitProjectBtn" onclick="openExitConfirm()" class="btn nav-exit-btn" type="button">退出项目</button>
     </div>
 </nav>
+<div id="globalToast" class="toast" role="status" aria-live="polite"></div>
+<div id="exitConfirmDialog" class="modal-overlay exit-confirm" role="dialog" aria-modal="true" aria-labelledby="exitConfirmTitle" hidden>
+    <div class="modal-box exit-confirm-box">
+        <div class="modal-title" id="exitConfirmTitle">确认退出项目？</div>
+        <p>退出后会停止后台任务、关闭本地服务并释放当前端口与连接。</p>
+        <p class="exit-confirm-warning">正在进行的 Apple Health 导入或训练历史补全会安全停止。</p>
+        <div class="exit-confirm-actions">
+            <button class="btn" type="button" onclick="closeExitConfirm()">取消</button>
+            <button class="btn btn-danger" id="confirmExitBtn" type="button" onclick="confirmExitProject()">确认退出并关闭</button>
+        </div>
+    </div>
+</div>
+<div id="projectShutdownScreen" class="shutdown-screen" role="status" aria-live="polite" hidden>
+    <div class="shutdown-card">
+        <div class="shutdown-mark">✓</div>
+        <h1 id="shutdownTitle">正在关闭项目…</h1>
+        <p id="shutdownMessage">正在停止后台任务并释放端口与连接。</p>
+    </div>
+</div>
 <script>
+function showGlobalToast(message, kind) {
+    const toast = document.getElementById('globalToast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.dataset.kind = kind || 'info';
+    toast.classList.add('show');
+    clearTimeout(window._xunjiToastTimer);
+    window._xunjiToastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+}
 async function refreshAll() {
-    const btn = document.querySelector('button[onclick="refreshAll()"]');
-    btn.textContent = '↻...';
+    const btn = document.getElementById('refreshDataBtn');
+    btn.disabled = true;
+    btn.textContent = '正在刷新…';
     try {
         const r = await fetch('/admin/clear-cache', { method: 'POST' });
         const d = await r.json();
-        if (d.status === 'ok') location.reload();
-        else { btn.textContent = '↻'; alert('刷新失败: ' + d.message); }
+        if (d.status === 'ok') {
+            showGlobalToast('训记缓存已刷新，正在重新读取');
+            setTimeout(() => location.reload(), 450);
+        } else {
+            btn.disabled = false;
+            btn.textContent = '↻ 刷新训记';
+            showGlobalToast('刷新失败：' + d.message, 'error');
+        }
     } catch(e) {
-        btn.textContent = '↻';
-        alert('刷新失败: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = '↻ 刷新训记';
+        showGlobalToast('刷新失败：' + e.message, 'error');
     }
 }
+
+function openExitConfirm() {
+    const dialog = document.getElementById('exitConfirmDialog');
+    dialog.hidden = false;
+    document.getElementById('confirmExitBtn').focus();
+}
+
+function closeExitConfirm() {
+    document.getElementById('exitConfirmDialog').hidden = true;
+    document.getElementById('exitProjectBtn').focus();
+}
+
+async function waitForProjectClosed() {
+    const title = document.getElementById('shutdownTitle');
+    const message = document.getElementById('shutdownMessage');
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 400);
+        try {
+            await fetch('/admin/refresh-times?shutdown_check=' + Date.now(), {
+                cache: 'no-store',
+                signal: controller.signal,
+            });
+        } catch (error) {
+            clearTimeout(timeout);
+            title.textContent = '项目已关闭';
+            message.textContent = '端口、后台任务和网络连接已释放。此窗口会尝试自动关闭。';
+            setTimeout(() => window.close(), 500);
+            return;
+        }
+        clearTimeout(timeout);
+    }
+    title.textContent = '项目退出已发起';
+    message.textContent = '服务正在完成最后的资源清理，可关闭此窗口。';
+}
+
+async function confirmExitProject() {
+    const button = document.getElementById('confirmExitBtn');
+    button.disabled = true;
+    button.textContent = '正在退出…';
+    try {
+        const response = await fetch('/admin/shutdown', {
+            method: 'POST',
+            headers: {'X-Xunji-Shutdown': 'confirm'},
+            cache: 'no-store',
+            keepalive: true,
+        });
+        const result = await response.json();
+        if (!response.ok || result.status !== 'shutting_down') {
+            throw new Error(result.detail || result.message || '无法关闭项目');
+        }
+        document.getElementById('exitConfirmDialog').hidden = true;
+        document.getElementById('projectShutdownScreen').hidden = false;
+        waitForProjectClosed();
+    } catch (error) {
+        button.disabled = false;
+        button.textContent = '确认退出并关闭';
+        showGlobalToast('退出失败：' + error.message, 'error');
+    }
+}
+
+document.getElementById('exitConfirmDialog').addEventListener('click', function(event) {
+    if (event.target === this) closeExitConfirm();
+});
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape' && !document.getElementById('exitConfirmDialog').hidden) {
+        closeExitConfirm();
+    }
+});
 document.addEventListener('DOMContentLoaded', async function() {
     try {
         const r = await fetch('/admin/refresh-times');
         const d = await r.json();
-        function fmt(t) { return t ? t.slice(5,16).replace('T',' ') : ''; }
-        if (d.health) document.getElementById('refreshHealthTs').textContent = '🍎 ' + fmt(d.health);
-        if (d.xunji) document.getElementById('refreshXunjiTs').textContent = '训记 ' + fmt(d.xunji);
+        function fmt(t) { return t ? t.slice(0,16).replace('T',' ') : '暂无'; }
+        document.getElementById('refreshHealthTs').textContent = fmt(d.health);
+        document.getElementById('refreshXunjiTs').textContent = fmt(d.xunji);
     } catch(e) {}
 });
 
@@ -71,29 +349,33 @@ document.addEventListener('DOMContentLoaded', async function() {
 
 <script>
 (async function() {
-    if (localStorage.getItem('ah_reminder_shown')) return;
     try {
         var r = await fetch('/api/ah-check');
         var d = await r.json();
         if (!d.import_time) return;
+        var reminderKey = 'ah_reminder_shown:' + d.import_time.slice(0, 10);
+        if (localStorage.getItem(reminderKey)) return;
         var importDate = new Date(d.import_time.replace(' ', 'T'));
         var now = new Date();
         var daysAgo = Math.floor((now - importDate) / (1000*60*60*24));
         if (daysAgo > 7) {
             document.getElementById('ahReminderDays').textContent = daysAgo;
             document.getElementById('ahReminder').style.display = 'flex';
-            localStorage.setItem('ah_reminder_shown', '1');
+            localStorage.setItem(reminderKey, '1');
         }
     } catch(e) {}
 })();
 </script>
 {% block extra_scripts %}{% endblock %}
-<div id="pageLoading" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.85);z-index:9999;flex-direction:column;align-items:center;justify-content:center;">
-    <div style="width:36px;height:36px;border:3px solid #e0e0e0;border-top-color:#1a1a2e;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:12px;"></div>
-    <div style="font-size:14px;color:#555;">加载中...</div>
+<div id="pageLoading" class="page-loading" style="display:none;">
+    <div class="page-loading-spinner"></div>
+    <div class="page-loading-text">加载中...</div>
 </div>
 <style>
 @keyframes spin { to { transform: rotate(360deg); } }
+.page-loading { position:fixed; inset:0; background:var(--overlay-bg); z-index:9999; flex-direction:column; align-items:center; justify-content:center; }
+.page-loading-spinner { width:36px; height:36px; border:3px solid var(--border-color); border-top-color:var(--text-strong); border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:12px; }
+.page-loading-text { font-size:14px; color:var(--text-muted); }
 </style>
 </body>
 </html>

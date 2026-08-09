@@ -16,11 +16,20 @@ jinja_env = Environment(
     auto_reload=True,
 )
 
-config = XunjiConfig.from_env()
+_config = None
+_cache = None
+_api_client = None
+_data_service = None
 
-_cache = Cache(config.cache_path)
-_api_client = XunjiAPIClient(config)
-_data_service = DataService(_cache, _api_client)
+
+def _ensure_state() -> None:
+    global _config, _cache, _api_client, _data_service
+    if _data_service is not None:
+        return
+    _config = XunjiConfig.from_env()
+    _cache = Cache(_config.cache_path)
+    _api_client = XunjiAPIClient(_config)
+    _data_service = DataService(_cache, _api_client)
 
 
 def get_jinja_env():
@@ -28,15 +37,32 @@ def get_jinja_env():
 
 
 def get_config():
-    return config
+    _ensure_state()
+    return _config
 
 
 def get_data_service():
+    _ensure_state()
     return _data_service
 
 
 def get_api_client():
+    _ensure_state()
     return _api_client
 
+
 def get_cache():
+    _ensure_state()
     return _cache
+
+
+async def close_state() -> None:
+    global _config, _cache, _api_client, _data_service
+    try:
+        if _data_service is not None:
+            await _data_service.close()
+    finally:
+        _config = None
+        _cache = None
+        _api_client = None
+        _data_service = None

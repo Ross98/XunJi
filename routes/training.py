@@ -1,6 +1,8 @@
 from __future__ import annotations
 import asyncio
 import calendar
+import logging
+from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request
@@ -14,14 +16,57 @@ from analysis import (
     calories_trend,
     heart_rate_trend,
     training_type_distribution,
+    classify_bodypart,
 )
 from movements_cn import apply_movement_cn_to_trains
 
 router = APIRouter(tags=["training"])
+logger = logging.getLogger(__name__)
 
 _history_backfill_task: asyncio.Task | None = None
 _EMPTY_TRAINING_CACHE_TTL = timedelta(minutes=30)
 _EMPTY_TRAINING_RECHECK_DAYS = 7
+
+
+def compute_frequency_stats(freq_counts: dict[str, int], today: date | None = None) -> dict:
+    """Compute 90-day frequency stats using real calendar adjacency."""
+    today = today or date.today()
+    start = today - timedelta(days=89)
+    counts = {
+        date.fromisoformat(day): int(count)
+        for day, count in freq_counts.items()
+        if count and start <= date.fromisoformat(day) <= today
+    }
+    training_dates = sorted(counts)
+    total = sum(counts.values())
+
+    longest = 0
+    running = 0
+    previous = None
+    for training_date in training_dates:
+        if previous is not None and training_date == previous + timedelta(days=1):
+            running += 1
+        else:
+            running = 1
+        longest = max(longest, running)
+        previous = training_date
+
+    current = 0
+    if training_dates and training_dates[-1] in {today, today - timedelta(days=1)}:
+        cursor = training_dates[-1]
+        dates_set = set(training_dates)
+        while cursor in dates_set:
+            current += 1
+            cursor -= timedelta(days=1)
+
+    return {
+        "total": total,
+        "days": len(training_dates),
+        "longest_streak": longest,
+        "current_streak": current,
+        "weekly_average": round(total / (90 / 7), 1),
+        "rest_days": 90 - len(training_dates),
+    }
 
 
 def _cached_training_has_data(data: object) -> bool:
@@ -93,7 +138,7 @@ async def _backfill_training_history(
         try:
             await ds.get_training(training_date, full=True)
         except Exception:
-            pass
+            logger.exception("Training history backfill failed for %s", training_date)
         await asyncio.sleep(delay_seconds)
 
 
@@ -104,6 +149,18 @@ def _ensure_training_history_backfill(ds, cache) -> None:
         _history_backfill_task = asyncio.create_task(
             _backfill_training_history(ds, cache)
         )
+
+
+async def stop_training_background_tasks() -> None:
+    """Cancel and join the process-local training history job."""
+    global _history_backfill_task
+    task = _history_backfill_task
+    _history_backfill_task = None
+    if task is None or task.done():
+        return
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
 
 
 def _parse_date_from_cache_key(key: str) -> str | None:
@@ -293,6 +350,7 @@ async def training_detail_fragment(request: Request, dt: str):
     try:
         data = await ds.get_training(dt, full=True)
     except Exception:
+        logger.exception("Training detail fetch failed for %s", dt)
         data = {"res": {"trains": []}}
     trains = data.get("res", {}).get("trains", [])
     if not trains:
@@ -300,10 +358,44 @@ async def training_detail_fragment(request: Request, dt: str):
     trains = apply_movement_cn_to_trains(trains)
     trains = _merge_overlapping_trains(trains)
     summary = summarize_training(trains)
+    active_dates = sorted(_get_cached_training_dates())
+    previous_date = None
+    next_date = None
+    if dt in active_dates:
+        index = active_dates.index(dt)
+        previous_date = active_dates[index - 1] if index > 0 else None
+        next_date = active_dates[index + 1] if index < len(active_dates) - 1 else None
+    cardio_minutes = 0.0
+    cardio_distance = 0.0
+    cardio_calories = 0.0
+    for train in trains:
+        metrics = train.get("_cardio_metrics", {})
+        cardio_minutes += float(metrics.get("total_duration_min") or 0)
+        cardio_distance += float(metrics.get("distance") or 0)
+        cardio_calories += float(metrics.get("calories") or 0)
+        if not metrics:
+            for movement in train.get("movements", []):
+                if movement.get("exetype") != "cardio":
+                    continue
+                for training_set in movement.get("sets", []):
+                    cardio_minutes += float(training_set.get("time") or 0) / 60
+                    cardio_distance += float(training_set.get("distance") or 0)
+                    cardio_calories += float(training_set.get("calories") or 0)
     env = get_jinja_env()
     tmpl = env.get_template("training_detail.html")
     return HTMLResponse(tmpl.render(
-        request=request, summary=summary, trains=trains, date_str=dt
+        request=request,
+        summary=summary,
+        trains=trains,
+        date_str=dt,
+        session_count=len(trains),
+        previous_date=previous_date,
+        next_date=next_date,
+        cardio_summary={
+            "minutes": round(cardio_minutes),
+            "distance": round(cardio_distance, 2),
+            "calories": round(cardio_calories),
+        },
     ))
 
 
@@ -324,7 +416,7 @@ async def training_page(request: Request):
     try:
         today_data = await ds.get_training(today_str, full=True)
     except Exception:
-        pass
+        logger.exception("Today's training fetch failed for %s", today_str)
     _ensure_training_history_backfill(ds, cache)
     today_trains = today_data.get("res", {}).get("trains", [])
     if not today_trains:
@@ -357,6 +449,7 @@ async def training_page(request: Request):
         d = t.get("datestr", "")
         if d:
             freq_counts[d] = freq_counts.get(d, 0) + 1
+    freq_stats = compute_frequency_stats(freq_counts, today=today)
     analysis_data = {
         "duration": training_duration_trend(all_trains),
         "calories": calories_trend(all_trains),
@@ -372,6 +465,10 @@ async def training_page(request: Request):
         for mov in train.get("movements", [])
         if mov.get("name")
     ) - EXCLUDED_MOVEMENTS)
+    movement_options = [
+        {"name": name, "group": classify_bodypart(name)}
+        for name in movement_names
+    ]
 
     env = get_jinja_env()
     tmpl = env.get_template("training.html")
@@ -385,7 +482,9 @@ async def training_page(request: Request):
         analysis_data=analysis_data,
         freq_dates=freq_dates,
         freq_counts=freq_counts,
+        freq_stats=freq_stats,
         movement_names=movement_names,
+        movement_options=movement_options,
     ))
 
 
@@ -419,4 +518,5 @@ async def training_track(movement_name: str):
         "max_weight": [h["max_weight"] for h in hist],
         "total_volume": [h["total_volume"] for h in hist],
         "total_sets": [h["total_sets"] for h in hist],
+        "estimated_1rm": [h.get("estimated_1rm", 0) for h in hist],
     }

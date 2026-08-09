@@ -1,14 +1,25 @@
-<div class="detail-header">{{ date_str }}</div>
+<div class="detail-header detail-nav">
+    <span>{{ date_str }}</span>
+    <span>
+        {% if previous_date %}<button class="btn-nav" hx-get="/training/{{ previous_date }}" hx-target="#training-detail" hx-swap="innerHTML">← 上一训练日</button>{% endif %}
+        {% if next_date %}<button class="btn-nav" hx-get="/training/{{ next_date }}" hx-target="#training-detail" hx-swap="innerHTML">下一训练日 →</button>{% endif %}
+    </span>
+</div>
 {% if summary.total_days > 0 %}
 <div class="detail-summary">
     <div class="grid-3" style="margin-bottom:12px;">
-        <div class="stat"><div class="stat-value">{{ summary.total_days }}</div><div class="stat-label">训练数</div></div>
+        <div class="stat"><div class="stat-value">{{ session_count|default(trains|length) }}</div><div class="stat-label">训练场次</div></div>
+        {% if summary.total_volume > 0 %}
         <div class="stat"><div class="stat-value">{{ summary.total_sets }}</div><div class="stat-label">总组数</div></div>
         <div class="stat"><div class="stat-value">{{ "%.0f"|format(summary.total_volume) }}</div><div class="stat-label">总容量 (kg)</div></div>
+        {% else %}
+        <div class="stat"><div class="stat-value">{{ cardio_summary.minutes|default('--') }}</div><div class="stat-label">有氧分钟</div></div>
+        <div class="stat"><div class="stat-value">{{ cardio_summary.calories|default('--') }}</div><div class="stat-label">活动能量 (kcal)</div></div>
+        {% endif %}
     </div>
     {% for train in trains %}
     <div style="margin-bottom:12px;padding:10px;background:#f9f9f9;border-radius:6px;">
-        <strong>{{ train.title or "无标题" }}</strong>
+        <strong>{{ train.title or "无标题训练" }}</strong>
         {% if train.get("_cardio_metrics", {}).get("calories") %}
         <div style="color:#888;font-size:12px;margin-top:4px;">
             {% set cm = train._cardio_metrics %}
@@ -19,10 +30,10 @@
         {% endif %}
         {% if train.note and train.note.text %}<span style="color:#666;font-size:12px;margin-left:6px;">{{ train.note.text }}</span>{% endif %}
         {% for mov in train.movements %}
-        <div style="margin:6px 0 0 8px;font-size:13px;">
-            <span style="font-weight:500;">{{ mov.name }}</span>
+        <div class="movement-detail">
+            {% if train.movements|length > 1 or train.title != mov.name %}<span style="font-weight:500;">{{ mov.name }}</span>{% endif %}
             {% if mov.difficulty %}<span style="color:#888;font-size:11px;">({{ mov.difficulty }})</span>{% endif %}
-            <div style="color:#555;font-size:12px;margin-left:10px;">
+            <div class="movement-sets">
             {% if mov.get("exetype", "") == "cardio" and mov.sets and mov.sets[0].calories %}
                 {% set cs = mov.sets[0] %}
                 {% set mins = (cs.time|int / 60)|round %}
@@ -37,17 +48,18 @@
                 <span> · 心率 {{ "%.0f"|format(cs.avgHeartRate|float) }}-{{ "%.0f"|format(cs.maxHeartRate|float) }}bpm</span>
                 {% endif %}
             {% else %}
-                {% for s in mov.sets %}
+                <div class="set-table">
+                {% for s in mov.sets %}<div class="set-row"><b>第{{ loop.index }}组</b><span>
                 {% if s.weight and s.weight != "0" and s.reps and s.reps != "0" %}
-                <span>{{ s.weight }}{{ s.unit }} × {{ s.reps }}次</span>
+                {{ s.weight }}{{ s.unit }} × {{ s.reps }}次
                 {% if s.rpe %}<span style="color:#888;"> RPE {{ s.rpe }}</span>{% endif %}
                 {% elif s.time and s.time != "0" %}
-                <span>{{ s.time }}秒</span>
+                {{ s.time }}秒
                 {% else %}
-                <span>{{ s.weight }}{{ s.unit }} × {{ s.reps }}次</span>
+                {{ s.weight }}{{ s.unit }} × {{ s.reps }}次
                 {% endif %}
-                {% if not loop.last %} | {% endif %}
-                {% endfor %}
+                </span></div>{% endfor %}
+                </div>
             {% endif %}
             </div>
         </div>

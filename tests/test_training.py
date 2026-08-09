@@ -1,7 +1,12 @@
 import asyncio
 from datetime import date, datetime, timezone
 
-from routes.training import _backfill_training_history, _ensure_training_history_backfill
+from routes.training import (
+    _backfill_training_history,
+    _ensure_training_history_backfill,
+    stop_training_background_tasks,
+    compute_frequency_stats,
+)
 
 
 class FakeCache:
@@ -97,3 +102,49 @@ def test_ensure_backfill_does_not_create_second_live_task(monkeypatch):
     monkeypatch.setattr(training.asyncio, "create_task", fail_if_called)
 
     _ensure_training_history_backfill(FakeDataService(), FakeCache({}))
+
+
+def test_frequency_stats_count_calendar_gaps_in_streaks():
+    stats = compute_frequency_stats(
+        {
+            "2026-08-01": 1,
+            "2026-08-02": 2,
+            "2026-08-04": 1,
+            "2026-08-08": 1,
+        },
+        today=date(2026, 8, 9),
+    )
+
+    assert stats == {
+        "total": 5,
+        "days": 4,
+        "longest_streak": 2,
+        "current_streak": 1,
+        "weekly_average": 0.4,
+        "rest_days": 86,
+    }
+
+
+def test_frequency_stats_current_streak_expires_after_full_rest_day():
+    stats = compute_frequency_stats(
+        {"2026-08-06": 1, "2026-08-07": 1},
+        today=date(2026, 8, 9),
+    )
+
+    assert stats["longest_streak"] == 2
+    assert stats["current_streak"] == 0
+
+
+def test_stop_training_background_tasks_cancels_live_task(monkeypatch):
+    import routes.training as training
+
+    async def run():
+        task = asyncio.create_task(asyncio.sleep(60))
+        monkeypatch.setattr(training, "_history_backfill_task", task)
+        await stop_training_background_tasks()
+        return task
+
+    task = asyncio.run(run())
+
+    assert task.cancelled()
+    assert training._history_backfill_task is None

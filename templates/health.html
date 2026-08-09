@@ -1,98 +1,138 @@
 {% extends "base.html" %}
 {% block title %}健康数据 - 训记分析{% endblock %}
-
 {% block content %}
 {% include '_freshness_bar.html' %}
-<h1>Apple Health 数据管理</h1>
+<div class="page-heading-row">
+    <div><h1>健康数据</h1><p class="page-subtitle">先看可行动的健康指标；导入和数据库信息集中放在数据管理。</p></div>
+</div>
 
 {% if not imported %}
-<div class="card" style="text-align:center;padding:40px;">
-    <p style="font-size:16px;color:#666;margin-bottom:16px;">
-        Apple Health 导出数据位于 <code>apple_health_export/导出.xml</code>
-    </p>
-    <button onclick="startImport()" class="btn btn-primary" id="importBtn">开始导入</button>
-    <div id="status" style="margin-top:16px;font-size:14px;color:#666;"></div>
+<div class="card empty-state-card">
+    <h2>尚未导入 Apple Health</h2>
+    <p>请将 iPhone 导出的文件放到：</p>
+    <code>{{ export_path }}</code>
+    <p>{% if export_exists %}已找到文件{% if export_size_mb %}，大小 {{ export_size_mb }} MB{% endif %}。{% else %}当前未找到该文件。{% endif %}</p>
+    <button onclick="startImport()" class="btn btn-primary" id="importBtn"{% if not export_exists %} disabled{% endif %}>开始后台导入</button>
+    <div id="importStatus" class="import-status"></div>
 </div>
 {% else %}
 
-<!-- 概览 -->
-<div class="card" style="margin-bottom:16px;padding:12px 20px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#666;">
-        <span>共 <strong>{{ stats.total_records }}</strong> 条记录 · <strong>{{ stats.total_workouts }}</strong> 次训练 · <strong>{{ sleep_count }}</strong> 条睡眠</span>
-        <span>{{ today }}</span>
-    </div>
+<div class="tab-bar page-tabs">
+    <button class="tab-btn active" data-health-tab="overview">健康概览</button>
+    <button class="tab-btn" data-health-tab="manage">数据管理</button>
 </div>
 
-<div class="grid-2" style="margin-bottom:16px;">
+<section class="tab-panel active" id="health-overview">
+    <div class="health-metric-grid">
+        <div class="card health-metric-card"><span>HRV</span><strong>{{ "%.0f"|format(hrv[0].value) if hrv else '--' }}</strong><em>ms</em><small>{{ hrv[0].start_date[:10] if hrv else '暂无日期' }}</small><canvas id="healthHrvChart"></canvas></div>
+        <div class="card health-metric-card"><span>静息心率</span><strong>{{ "%.0f"|format(resting_hr[0].value) if resting_hr else '--' }}</strong><em>bpm</em><small>{{ resting_hr[0].start_date[:10] if resting_hr else '暂无日期' }}</small><canvas id="healthRhrChart"></canvas></div>
+        <div class="card health-metric-card"><span>VO₂ Max</span><strong>{{ "%.1f"|format(vo2[0].value) if vo2 else '--' }}</strong><em>ml/kg/min</em><small>{{ vo2[0].start_date[:10] if vo2 else '暂无日期' }}</small><canvas id="healthVo2Chart"></canvas></div>
+        <div class="card health-metric-card"><span>血氧饱和度</span><strong>{{ "%.1f"|format(oxygen[0].value * 100) if oxygen else '--' }}</strong><em>%</em><small>{{ oxygen[0].start_date[:10] if oxygen else '暂无日期' }}</small></div>
+        <div class="card health-metric-card"><span>呼吸频率</span><strong>{{ "%.1f"|format(respiratory[0].value) if respiratory else '--' }}</strong><em>次/分</em><small>{{ respiratory[0].start_date[:10] if respiratory else '暂无日期' }}</small></div>
+        <div class="card health-metric-card"><span>一分钟心率恢复</span><strong>{{ "%.0f"|format(heart_recovery[0].value) if heart_recovery else '--' }}</strong><em>bpm</em><small>{{ heart_recovery[0].start_date[:10] if heart_recovery else '暂无日期' }}</small></div>
+        <div class="card health-metric-card"><span>睡眠腕温</span><strong>{{ "%.2f"|format(wrist_temperature[0].value) if wrist_temperature else '--' }}</strong><em>°C</em><small>{{ wrist_temperature[0].start_date[:10] if wrist_temperature else '暂无日期' }}</small></div>
+    </div>
+
     <div class="card">
-        <div class="card-title">数据类型 ({{ stats.records|length }})</div>
-        <div class="data-table-wrap" style="max-height:300px;overflow-y:auto;">
-            <table class="data-table" style="font-size:12px;">
-                <thead><tr><th>类型</th><th>条数</th><th>占比</th></tr></thead>
-                <tbody>
-                    {% for r in stats.records %}
-                    <tr>
-                        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ r.type|replace('HKQuantityTypeIdentifier','') }}</td>
-                        <td>{{ r.cnt }}</td>
-                        <td>{{ "%.1f"|format(r.cnt / stats.total_records * 100) }}%</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="card-title">步态与稳定性</div>
+        <p class="card-description">展示 Apple Health 最近一条记录；“—”表示这次导出中没有该指标。</p>
+        <div class="health-gait-grid">
+            <div><span>步行速度</span><strong>{{ "%.2f"|format(walking_speed[0].value) if walking_speed else '--' }}</strong><em>{{ walking_speed[0].unit if walking_speed else '' }}</em><small>{{ walking_speed[0].start_date[:10] if walking_speed else '暂无日期' }}</small></div>
+            <div><span>步幅</span><strong>{{ "%.1f"|format(walking_step_length[0].value) if walking_step_length else '--' }}</strong><em>cm</em><small>{{ walking_step_length[0].start_date[:10] if walking_step_length else '暂无日期' }}</small></div>
+            <div><span>步态不对称</span><strong>{{ "%.1f"|format(walking_asymmetry[0].value * 100) if walking_asymmetry else '--' }}</strong><em>%</em><small>{{ walking_asymmetry[0].start_date[:10] if walking_asymmetry else '暂无日期' }}</small></div>
+            <div><span>步行稳定性</span><strong>{{ "%.1f"|format(walking_steadiness[0].value * 100) if walking_steadiness else '--' }}</strong><em>%</em><small>{{ walking_steadiness[0].start_date[:10] if walking_steadiness else '暂无日期' }}</small></div>
         </div>
     </div>
-    <div class="card">
-        <div class="card-title">训练类型 ({{ stats.workouts|length }})</div>
-        <div class="data-table-wrap" style="max-height:300px;overflow-y:auto;">
-            <table class="data-table" style="font-size:12px;">
-                <thead><tr><th>类型</th><th>次数</th></tr></thead>
-                <tbody>
-                    {% for w in stats.workouts %}
-                    <tr>
-                        <td>{{ w.type|replace('HKWorkoutActivityType','') }}</td>
-                        <td>{{ w.cnt }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+
+    <div class="grid-2">
+        <div class="card">
+            <div class="card-title">最近一晚睡眠</div>
+            {% if sleep_metrics %}
+            <div class="sleep-overview"><strong>{{ sleep_metrics.hours }}小时</strong><span>{{ sleep_metrics.date }} · 清醒 {{ sleep_metrics.awake_minutes }}分钟</span></div>
+            <div class="sleep-stage-row"><span>核心 {{ sleep_metrics.core_pct }}%</span><i style="width:{{ sleep_metrics.core_pct }}%;background:#6574d8"></i></div>
+            <div class="sleep-stage-row"><span>深睡 {{ sleep_metrics.deep_pct }}%</span><i style="width:{{ sleep_metrics.deep_pct }}%;background:#3949ab"></i></div>
+            <div class="sleep-stage-row"><span>REM {{ sleep_metrics.rem_pct }}%</span><i style="width:{{ sleep_metrics.rem_pct }}%;background:#9c6ade"></i></div>
+            <p class="card-description">近90天共汇总 {{ sleep_nights }} 晚；原始阶段记录 {{ sleep_count }} 条。</p>
+            {% else %}<div class="inline-state">暂无睡眠阶段数据</div>{% endif %}
+        </div>
+        <div class="card">
+            <div class="card-title">近期 Apple Watch 训练</div>
+            {% if workouts %}<div class="compact-list">
+            {% for workout in workouts %}<div><strong>{{ workout_label(workout.workout_activity_type) }}</strong><span>{{ workout.start_date[:10] }} · {{ "%.0f"|format(workout.duration or 0) }}分钟{% if workout.total_energy_burned %} · {{ "%.0f"|format(workout.total_energy_burned) }} kcal{% endif %}</span></div>{% endfor %}
+            </div>{% else %}<div class="inline-state">暂无近期训练</div>{% endif %}
         </div>
     </div>
-</div>
 
-<!-- 数据操作 -->
-<div class="card">
-    <div class="card-title">数据操作</div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <button onclick="startImport()" class="btn btn-primary" id="importBtn">重新导入</button>
-        <span id="status" style="font-size:13px;color:#666;display:inline-flex;align-items:center;"></span>
+    <div class="card">
+        <div class="card-title chart-title-row"><span>近期身体记录</span><a href="/body" class="text-link">查看完整身体趋势 →</a></div>
+        {% if body_rows %}<table class="data-table"><thead><tr><th>日期</th><th>体重</th><th>体脂率</th></tr></thead><tbody>{% for row in body_rows %}<tr><td>{{ row.date }}</td><td>{{ row.weight|default('--') }} kg</td><td>{{ row.bodyfat|default('--') }}%</td></tr>{% endfor %}</tbody></table>{% else %}<div class="inline-state">暂无身体记录</div>{% endif %}
     </div>
-</div>
+</section>
 
+<section class="tab-panel" id="health-manage">
+    <div class="health-db-summary">
+        <div><strong>{{ "{:,}".format(stats.total_records) }}</strong><span>健康记录</span></div>
+        <div><strong>{{ "{:,}".format(stats.total_workouts) }}</strong><span>训练</span></div>
+        <div><strong>{{ sleep_nights }}</strong><span>睡眠晚数（90天）</span></div>
+        <div><strong>{{ database_size_mb }} MB</strong><span>数据库大小</span></div>
+    </div>
+    <div class="card data-coverage-card"><span>覆盖范围</span><strong>{{ coverage.start_date or '--' }} → {{ coverage.end_date or '--' }}</strong><span>导出文件：{% if export_exists %}{{ export_size_mb }} MB{% else %}未找到{% endif %}</span></div>
+
+    <div class="grid-2">
+        <div class="card"><div class="card-title">数据类型（{{ stats.records|length }}）</div><div class="data-table-wrap health-scroll-table"><table class="data-table"><thead><tr><th>类型</th><th>条数</th><th>占比</th></tr></thead><tbody>{% for record in stats.records %}<tr><td title="{{ record.type }}">{{ health_label(record.type) }}</td><td>{{ "{:,}".format(record.cnt) }}</td><td>{{ "%.1f"|format(record.cnt / stats.total_records * 100) }}%</td></tr>{% endfor %}</tbody></table></div></div>
+        <div class="card"><div class="card-title">训练类型（{{ stats.workouts|length }}）</div><div class="data-table-wrap health-scroll-table"><table class="data-table"><thead><tr><th>类型</th><th>次数</th></tr></thead><tbody>{% for workout in stats.workouts %}<tr><td title="{{ workout.type }}">{{ workout_label(workout.type) }}</td><td>{{ workout.cnt }}</td></tr>{% endfor %}</tbody></table></div></div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">后台导入</div>
+        <p class="card-description">增量导入：已存在记录会跳过。页面刷新后仍可继续查看任务状态。</p>
+        <code class="path-code">{{ export_path }}</code>
+        <div class="import-actions"><button onclick="startImport()" class="btn btn-primary" id="importBtn"{% if not export_exists %} disabled{% endif %}>重新导入</button><span id="importStatus"></span></div>
+        <div class="dashboard-progress-track import-progress"><div id="importProgressBar" class="dashboard-progress-bar" style="width:0%"></div></div>
+    </div>
+</section>
 {% endif %}
 
 <script>
-async function startImport() {
-    const btn = document.getElementById('importBtn');
-    const status = document.getElementById('status');
-    btn.disabled = true;
-    btn.textContent = '导入中 (约 2-5 分钟)...';
-    status.textContent = '解析中...';
-    try {
-        const resp = await fetch('/health/import', { method: 'POST' });
-        const result = await resp.json();
-        if (result.status === 'ok') {
-            status.innerHTML = '✅ 导入完成: 共 ' + result.total + ' 条记录';
-            setTimeout(() => location.reload(), 1500);
-        } else {
-            status.innerHTML = '❌ ' + result.message;
-            btn.disabled = false;
-            btn.textContent = '重新导入';
-        }
-    } catch(e) {
-        status.innerHTML = '❌ 导入失败: ' + e.message;
-        btn.disabled = false;
-        btn.textContent = '重新导入';
-    }
+document.querySelectorAll('[data-health-tab]').forEach(button => button.addEventListener('click', function() {
+    document.querySelectorAll('[data-health-tab]').forEach(item=>item.classList.remove('active'));
+    document.querySelectorAll('#health-overview,#health-manage').forEach(panel=>panel.classList.remove('active'));
+    this.classList.add('active');
+    document.getElementById('health-'+this.dataset.healthTab).classList.add('active');
+}));
+
+function drawHealthChart(id, records, color) {
+    const canvas = document.getElementById(id); if (!canvas || !records.length) return;
+    const ordered = [...records].reverse();
+    new Chart(canvas,{type:'line',data:{labels:ordered.map(item=>item.start_date.slice(5,10)),datasets:[{data:ordered.map(item=>item.value),borderColor:color,pointRadius:0,tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{display:false},y:{display:false}}}});
 }
+drawHealthChart('healthHrvChart', {{ hrv|tojson|safe }}, '#e94560');
+drawHealthChart('healthRhrChart', {{ resting_hr|tojson|safe }}, '#3498db');
+drawHealthChart('healthVo2Chart', {{ vo2|tojson|safe }}, '#2ecc71');
+
+let importPollTimer = null;
+async function pollImportStatus() {
+    try {
+        const response = await fetch('/health/import/status');
+        const state = await response.json();
+        const status = document.getElementById('importStatus');
+        const button = document.getElementById('importBtn');
+        const bar = document.getElementById('importProgressBar');
+        if (status) status.textContent = state.status === 'running' ? state.message + (state.processed ? ' · 已解析 '+state.processed+' 条' : '') : state.message;
+        if (button) { button.disabled = state.status === 'running'; button.textContent = state.status === 'running' ? '导入进行中…' : '重新导入'; }
+        if (bar) bar.style.width = state.status === 'running' ? '72%' : state.status === 'ok' ? '100%' : '0%';
+        if (state.status === 'running') importPollTimer = setTimeout(pollImportStatus, 1200);
+        else if (state.status === 'ok') { showGlobalToast('Apple Health 导入完成，共 '+state.total+' 条新记录'); setTimeout(()=>location.reload(),800); }
+    } catch (error) { const status=document.getElementById('importStatus'); if(status) status.textContent='状态读取失败：'+error.message; }
+}
+async function startImport() {
+    const button = document.getElementById('importBtn'); if (button) button.disabled = true;
+    try {
+        const response = await fetch('/health/import',{method:'POST'}); const result = await response.json();
+        if (!['started','busy'].includes(result.status)) throw new Error(result.message || '无法启动导入');
+        pollImportStatus();
+    } catch (error) { if(button) button.disabled=false; showGlobalToast('导入失败：'+error.message,'error'); }
+}
+{% if imported %}pollImportStatus();{% endif %}
 </script>
 {% endblock %}

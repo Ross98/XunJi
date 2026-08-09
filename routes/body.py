@@ -1,15 +1,17 @@
 from datetime import date, timedelta
-from typing import Optional
 
-import json, os
+import json
+import logging
+import os
 
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
-from app_state import get_jinja_env, get_data_service
+from app_state import get_cache, get_jinja_env, get_data_service
 from data_service import DataFreshnessService
 from analysis import summarize_body, body_latest, body_stats, body_changes, calculate_bmi
 
 router = APIRouter(tags=["body"])
+logger = logging.getLogger(__name__)
 
 BODY_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "body_config.json")
 
@@ -28,6 +30,8 @@ def _save_body_config(config: dict):
 RANGE_MAP = {
     "30": 30,
     "90": 90,
+    "180": 180,
+    "365": 365,
     "all": 3650,
 }
 
@@ -68,13 +72,6 @@ def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list
             bf_val = round(r["value"] * 100, 1) if r["value"] else None
             ah_by_date[d]["bodyfat"] = bf_val
 
-    # Build merged records list
-    existing_dates = set()
-    for rec in records:
-        d = rec.get("datestr", "")
-        if d:
-            existing_dates.add(d)
-
     merged = list(records)
 
     for d, vals in ah_by_date.items():
@@ -109,7 +106,11 @@ async def body_page(
     days = RANGE_MAP.get(range, 90)
     start = (date.today() - timedelta(days=days)).isoformat()
 
-    body_data = await ds.get_body(start, today)
+    try:
+        body_data = await ds.get_body(start, today)
+    except Exception:
+        logger.exception("Body API unavailable; rendering Apple Health data only")
+        body_data = {"res": {"records": []}}
     records = body_data.get("res", {}).get("records", [])
     if not records:
         records = body_data.get("records", [])
@@ -118,13 +119,7 @@ async def body_page(
         import json
         records = json.loads(records)
 
-    # Use API's `latest` field instead of calculating from possibly-truncated records
-    api_latest = body_data.get("res", {}).get("latest", {}) or body_data.get("latest", {})
-    if isinstance(api_latest, str):
-        import json
-        api_latest = json.loads(api_latest)
-
-    # Merge Apple Health data (只用于 chart, 不影响 latest)
+    # Merge Apple Health data into gaps in the XunJi records.
     records_merged, ah_dates = _merge_apple_health(records, start, today)
 
     summary = summarize_body(records_merged)
@@ -133,6 +128,12 @@ async def body_page(
 
     # Latest weight: 统一从 records 计算（不受 API latest 范围限制影响）
     latest = body_latest(records_merged)
+    for metric, item in latest.items():
+        matching = next((
+            record for record in records_merged
+            if record.get("type") == metric and record.get("datestr") == item.get("date")
+        ), None)
+        item["source"] = "Apple Health" if matching and matching.get("source") == "apple_health" else "训记"
 
     latest_weight_val = latest.get("weight", {}).get("value")
 
@@ -168,22 +169,37 @@ async def body_page(
                 latest_measurement_changes[field] = 0.0
         elif recs:
             latest_measurement_changes[field] = 0.0
-    body_fields = ['chest','weist','bot','shoulder','neck',
-                   'arm_left','arm_right','forearm_left','forearm_right',
-                   'leg_left','leg_right','cav_left','cav_right']
-    latest_measurement_changes = {}
-    for field in body_fields:
-        recs = [r for r in records_merged if r.get("type") == field]
-        if recs and len(recs) > 1:
-            key = f"{field}:{recs[0].get('datestr','')}"
-            val = changes.get(key)
-            if val is not None:
-                latest_measurement_changes[field] = val
-            else:
-                latest_measurement_changes[field] = 0.0
-        elif recs:
-            latest_measurement_changes[field] = 0.0
+    measurement_dates = [
+        latest[field]["date"] for field in body_fields
+        if latest.get(field, {}).get("date")
+    ]
+    latest_measurement_date = max(measurement_dates) if measurement_dates else None
 
+    asymmetry = []
+    for label, right_key, left_key in (
+        ("大臂", "arm_right", "arm_left"),
+        ("小臂", "forearm_right", "forearm_left"),
+        ("大腿", "leg_right", "leg_left"),
+        ("小腿", "cav_right", "cav_left"),
+    ):
+        right = latest.get(right_key, {}).get("value")
+        left = latest.get(left_key, {}).get("value")
+        if right is None or left is None:
+            continue
+        try:
+            right_value, left_value = float(right), float(left)
+        except (TypeError, ValueError):
+            continue
+        average = (right_value + left_value) / 2
+        difference = round(right_value - left_value, 1)
+        asymmetry.append({
+            "label": label,
+            "right": right_value,
+            "left": left_value,
+            "difference": difference,
+            "percent": round(abs(difference) / average * 100, 1) if average else 0,
+            "dominant": "右侧" if difference > 0 else "左侧" if difference < 0 else "平衡",
+        })
     # Period change (first vs last in range)
     w_chrono = sorted(
         [r for r in records_merged if r.get("type") == "weight" and r.get("value") is not None],
@@ -212,9 +228,9 @@ async def body_page(
 
     env = get_jinja_env()
     tmpl = env.get_template("body.html")
-    ah_source = len(ah_dates) > 0  # 是否有 Apple Health 数据
+    ah_source = bool(ah_dates)
 
-    freshness_svc = DataFreshnessService()
+    freshness_svc = DataFreshnessService(xunji_cache=get_cache())
     freshness_ctx = freshness_svc.get_freshness_context()
     return HTMLResponse(tmpl.render(
         request=request,
@@ -230,6 +246,8 @@ async def body_page(
         latest_weight_change=latest_weight_change,
         latest_bf_change=latest_bf_change,
         latest_measurement_changes=latest_measurement_changes,
+        latest_measurement_date=latest_measurement_date,
+        asymmetry=asymmetry,
         period_weight_change=period_weight_change,
         period_bf_change=period_bf_change,
         height_cm=height_cm,
@@ -247,7 +265,9 @@ async def update_body_settings(data: dict):
     if "height_cm" in data:
         h = data["height_cm"]
         if isinstance(h, (int, float)) and 100 <= h <= 250:
-            config["height_cm"] = int(h)
+            config["height_cm"] = round(float(h), 1)
+        else:
+            return {"status": "error", "message": "身高需在100–250 cm之间"}
     _save_body_config(config)
     return {"status": "ok"}
 
@@ -276,11 +296,10 @@ def _build_table_data(records: list[dict], changes: dict[str, float], ah_dates: 
                     by_date[d]["bmi"] = bmi_val
             # Track source
             src = rec.get("source", "")
-            if src == "apple_health":
-                by_date[d]["source"] = "🍎"
+            by_date[d][f"{t}_source"] = "Apple Health" if src == "apple_health" else "训记"
         # Mark Apple Health source for dates with any AH data
     for d in by_date:
-        if ah_dates and d in ah_dates and "source" not in by_date[d]:
-            by_date[d]["source"] = "🍎"
+        if ah_dates and d in ah_dates:
+            by_date[d].setdefault("source", "Apple Health")
     rows = sorted(by_date.values(), key=lambda x: x["date"], reverse=True)
     return rows
