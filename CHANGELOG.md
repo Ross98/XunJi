@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- 停用饮食模块的运行时依赖；保留历史代码和设计文档
+- 自动加载项目 `.env`，仅要求当前启用的训练与身体 API Key
+- 修复身体缓存刷新、首页降级、训练组数和活动消耗口径
+- 恢复分析改读本地缓存，避免冷启动并发请求训练 API
+- Apple Health 导入移入线程池，避免阻塞其他请求
+- 首页改为轻量加载壳，展示进度、处理阶段和失败重试后再异步载入仪表盘
+- 接入 favicon、Apple Touch Icon 与 PWA Web App Manifest
+
 ## v2.0 (2026-07-13)
 
 Apple Health 集成 + 健康仪表盘 + 训练计划增强。

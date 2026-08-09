@@ -1,4 +1,6 @@
-# Task Handoff
+# Historical Task Handoff (2026-08-05)
+
+> 此文档记录当时一次训练日历排障，当前状态以工作树、测试和 `CHANGELOG.md` 为准。
 
 ## Goal
 

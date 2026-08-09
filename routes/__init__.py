@@ -1,4 +1,21 @@
-from fastapi import FastAPI
+import asyncio
+
+from fastapi import FastAPI, HTTPException, Request, status
+
+from shutdown_service import schedule_shutdown
+
+
+_LOCAL_CLIENTS = {"127.0.0.1", "::1"}
+
+
+async def close_route_tasks() -> None:
+    """Stop process-local jobs before shared clients are closed."""
+    from routes import health, training
+
+    await asyncio.gather(
+        training.stop_training_background_tasks(),
+        health.stop_health_background_tasks(),
+    )
 
 
 def register_routes(app: FastAPI):
@@ -21,8 +38,8 @@ def register_routes(app: FastAPI):
     async def clear_cache():
         try:
             from datetime import datetime, timezone, timedelta
-            from cache import Cache
-            c = Cache()
+            from app_state import get_cache
+            c = get_cache()
             # 保留系统 key 再清
             health_time = c.get("_health_import_time")
             c.clear()
@@ -48,8 +65,29 @@ def register_routes(app: FastAPI):
 
     @app.get("/admin/refresh-times")
     async def refresh_times():
-        from cache import Cache
-        c = Cache()
+        from app_state import get_cache
+        c = get_cache()
         xunji = c.get("_xunji_refresh_time")
         health = c.get("_health_import_time")
         return {"xunji": to_bj(xunji.get("time")) if xunji else None, "health": to_bj(health.get("time")) if health else None}
+
+    @app.post("/admin/shutdown", status_code=status.HTTP_202_ACCEPTED)
+    async def shutdown_project(request: Request):
+        if request.headers.get("X-Xunji-Shutdown") != "confirm":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="需要确认退出",
+            )
+        client_host = request.client.host if request.client else ""
+        if client_host not in _LOCAL_CLIENTS:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="仅允许从本机关闭项目",
+            )
+        if not getattr(app.state, "shutdown_requested", False):
+            app.state.shutdown_requested = True
+            schedule_shutdown()
+        return {
+            "status": "shutting_down",
+            "message": "项目正在关闭并释放资源",
+        }

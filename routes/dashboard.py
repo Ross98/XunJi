@@ -1,21 +1,39 @@
 """仪表盘路由"""
 
-from datetime import date, timedelta
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta, timezone
 from collections import defaultdict
 import json
+import logging
 from typing import Optional
-import asyncio
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse
-from app_state import get_jinja_env, get_data_service
-from data_service import DataFreshnessService, get_cache
+from app_state import get_cache, get_jinja_env, get_data_service
+from data_service import DataFreshnessService
 from analysis import summarize_training, summarize_body, body_latest
-import apple_health as _apple_health
 
 router = APIRouter(tags=["dashboard"])
+logger = logging.getLogger(__name__)
+_BODY_REFRESH_TTL = timedelta(minutes=15)
+_TRAINING_TYPE_ALIASES = {
+    "TraditionalStrengthTraining": "力量训练",
+    "FunctionalStrengthTraining": "功能性力量",
+    "HighIntensityIntervalTraining": "HIIT",
+    "Walking": "步行",
+    "Running": "跑步",
+    "Cycling": "骑行",
+    "Swimming": "游泳",
+    "Hiking": "徒步",
+    "Yoga": "瑜伽",
+    "CoreTraining": "核心训练",
+    "Flexibility": "柔韧性",
+}
 
 _ah = None
+
+
 def _get_ah():
     global _ah
     if _ah is None:
@@ -76,7 +94,97 @@ async def _get_training_or_empty(ds, training_date: str) -> dict:
     try:
         return await ds.get_training(training_date)
     except Exception:
+        logger.exception("Training API unavailable for %s", training_date)
         return {"res": {"trains": []}}
+
+
+def _extract_body_records(data: object) -> list[dict]:
+    if not isinstance(data, dict):
+        return []
+    res = data.get("res")
+    if isinstance(res, dict) and isinstance(res.get("records"), list):
+        return res["records"]
+    records = data.get("records")
+    return records if isinstance(records, list) else []
+
+
+async def _refresh_body_cache(ds, start: str, end: str) -> None:
+    try:
+        await ds.get_body(start, end, force_refresh=True)
+    except Exception:
+        logger.exception("Body API background refresh failed")
+
+
+def _body_cache_needs_refresh(
+    cache, cache_key: str, now: datetime | None = None
+) -> bool:
+    get_mtime = getattr(cache, "get_mtime", None)
+    if get_mtime is None:
+        return True
+    mtime = get_mtime(cache_key)
+    if not mtime:
+        return True
+    try:
+        cached_at = datetime.fromisoformat(mtime)
+    except ValueError:
+        return True
+    if cached_at.tzinfo is None:
+        cached_at = cached_at.replace(tzinfo=timezone.utc)
+    current_time = now or datetime.now(timezone.utc)
+    return current_time - cached_at > _BODY_REFRESH_TTL
+
+
+async def _get_body_records(
+    ds,
+    cache,
+    cache_key: str,
+    start: str,
+    end: str,
+    background_tasks: BackgroundTasks | None = None,
+) -> list[dict]:
+    cached = cache.get(cache_key)
+    if cached is not None:
+        if background_tasks is not None and _body_cache_needs_refresh(cache, cache_key):
+            background_tasks.add_task(_refresh_body_cache, ds, start, end)
+        return _extract_body_records(cached)
+    try:
+        return _extract_body_records(await ds.get_body(start, end))
+    except Exception:
+        logger.exception("Body API unavailable and no cache exists")
+        return []
+
+
+def _get_cached_training_dates(cache, end_date: str, days: int = 14) -> set[str]:
+    end = date.fromisoformat(end_date)
+    training_dates: set[str] = set()
+    for offset in range(days):
+        current = (end - timedelta(days=offset)).isoformat()
+        cached = (
+            cache.get(f"training:{current}:False")
+            or cache.get(f"training:{current}:True")
+        )
+        for train in _extract_trains(cached):
+            training_date = train.get("datestr")
+            if training_date:
+                training_dates.add(training_date)
+    return training_dates
+
+
+def _get_daily_health_total(ah, metric_type: str, preferred_date: str) -> tuple[float, str | None]:
+    def total_for(metric_date: str) -> float:
+        records = ah.query_records(
+            metric_type, metric_date, metric_date + " 23:59:59"
+        )
+        return sum(float(record["value"]) for record in records if record.get("value"))
+
+    preferred_total = total_for(preferred_date)
+    if preferred_total > 0:
+        return preferred_total, preferred_date
+
+    latest = ah.get_latest_dates(metric_type).get(metric_type)
+    if latest and latest != preferred_date:
+        return total_for(latest), latest
+    return 0, latest or preferred_date
 
 
 @router.get("/api/ah-check")
@@ -92,7 +200,15 @@ async def ah_import_check():
 
 
 @router.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
+async def dashboard_loader(request: Request):
+    """Return immediately while the browser loads the expensive dashboard."""
+    env = get_jinja_env()
+    tmpl = env.get_template("dashboard_loader.html")
+    return HTMLResponse(tmpl.render(request=request))
+
+
+@router.get("/dashboard/content", response_class=HTMLResponse)
+async def dashboard_content(request: Request, background_tasks: BackgroundTasks):
     ds = get_data_service()
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=1)).isoformat()
@@ -101,57 +217,39 @@ async def dashboard(request: Request):
     training_data = await _get_training_or_empty(ds, yesterday)
     trains = _extract_trains(training_data)
     summary = summarize_training(trains)
+    training_sessions = len(trains)
+    training_minutes = 0
+    for train in trains:
+        cardio = train.get("_cardio_metrics", {})
+        try:
+            training_minutes += float(cardio.get("total_duration_min") or 0)
+        except (TypeError, ValueError):
+            pass
 
     # 训练类型标签 & set 数
     all_types = set()
-    total_sets = 0
+    total_sets = summary["total_sets"]
     for t in trains:
         for m in t.get("movements", []):
             mt = m.get("type") or ""
             if not mt or mt[0].islower():
                 mt = m.get("name", "")
-            # 只取英文 workout type 并转为可读标签
-            TYPE_ALIAS = {"TraditionalStrengthTraining":"力量训练", "FunctionalStrengthTraining":"功能性力量", "HighIntensityIntervalTraining":"HIIT", "Walking":"步行", "Running":"跑步", "Cycling":"骑行", "Swimming":"游泳", "Hiking":"徒步", "Yoga":"瑜伽", "CoreTraining":"核心训练", "Flexibility":"柔韧性"}
-            alias = TYPE_ALIAS.get(mt, "")
+            alias = _TRAINING_TYPE_ALIASES.get(mt, "")
             if alias:
                 all_types.add(alias)
-            for s in m.get("sets", []):
-                total_sets += len(s.get("items", s))
     train_type_str = " · ".join(sorted(all_types)[:2]) if all_types else ""
 
     # body: 先读缓存, 后台异步刷新
     cache = get_cache()
     three_months = (date.today() - timedelta(days=90)).isoformat()
     body_cache_key = f"body:all:{three_months}:{today}:500"
-    cached_body = cache.get(body_cache_key)
-    if cached_body:
-        records = cached_body.get("res", {}).get("records", [])
-        if not records:
-            records = cached_body.get("records", [])
-        # 后台刷新缓存, 失败不影响当前页面
-        async def _refresh_body():
-            try:
-                fresh = await ds.get_body(three_months, today)
-                cache.set(body_cache_key, fresh)
-            except Exception:
-                pass  # API 挂了 → 保持旧缓存
-        asyncio.ensure_future(_refresh_body())
-    else:
-        # 首次无缓存 → 正常等 API
-        body_data = await ds.get_body(three_months, today)
-        records = body_data.get("res", {}).get("records", [])
-        if not records:
-            records = body_data.get("records", [])
+    records = await _get_body_records(
+        ds, cache, body_cache_key, three_months, today, background_tasks
+    )
     body_summary = summarize_body(records)
     latest_body = body_latest(records)
 
-    diet_data = await ds.get_diet(yesterday, yesterday)
-    diet_records = diet_data.get("res", {}).get("records", [])
-    if not diet_records:
-        diet_records = diet_data.get("records", [])
-    today_calories = sum(
-        r.get("ntr", {}).get("cal", 0) for r in diet_records if r.get("date") == today
-    )
+    yesterday_active_calories = None
 
     # ── Apple Health 数据 ──
     health_data = None
@@ -175,35 +273,16 @@ async def dashboard(request: Request):
         rhr_trend = _build_trend(rhr_raw)
         vo2_trend = _build_trend(vo2_raw)
 
-        # Steps: try yesterday, fall back to latest available
-        step_raw = ah.query_records("HKQuantityTypeIdentifierStepCount", yesterday, yesterday + " 23:59:59")
-        today_steps = sum(r["value"] for r in step_raw if r.get("value")) if step_raw else 0
-        if today_steps == 0:
-            latest_dates = ah.get_latest_dates("HKQuantityTypeIdentifierStepCount")
-            latest_step_date = latest_dates.get("HKQuantityTypeIdentifierStepCount")
-            if latest_step_date:
-                step_raw = ah.query_records("HKQuantityTypeIdentifierStepCount", latest_step_date, latest_step_date + " 23:59:59")
-                today_steps = sum(r["value"] for r in step_raw if r.get("value")) if step_raw else 0
-
-        # Exercise: try yesterday, fall back to latest
-        ex_raw = ah.query_records("HKQuantityTypeIdentifierAppleExerciseTime", yesterday, yesterday + " 23:59:59")
-        today_exercise = sum(r["value"] for r in ex_raw if r.get("value")) if ex_raw else 0
-        if today_exercise == 0:
-            latest_dates = ah.get_latest_dates("HKQuantityTypeIdentifierAppleExerciseTime")
-            latest_ex_date = latest_dates.get("HKQuantityTypeIdentifierAppleExerciseTime")
-            if latest_ex_date:
-                ex_raw = ah.query_records("HKQuantityTypeIdentifierAppleExerciseTime", latest_ex_date, latest_ex_date + " 23:59:59")
-                today_exercise = sum(r["value"] for r in ex_raw if r.get("value")) if ex_raw else 0
-
-        # Stand: try yesterday, fall back to latest
-        stand_raw = ah.query_records_desc("HKQuantityTypeIdentifierAppleStandTime", yesterday, yesterday + " 23:59:59")
-        today_stand = round(sum(r["value"] for r in stand_raw if r.get("value"))) if stand_raw else 0
-        if today_stand == 0:
-            latest_dates = ah.get_latest_dates("HKQuantityTypeIdentifierAppleStandTime")
-            latest_stand_date = latest_dates.get("HKQuantityTypeIdentifierAppleStandTime")
-            if latest_stand_date:
-                stand_raw = ah.query_records_desc("HKQuantityTypeIdentifierAppleStandTime", latest_stand_date, latest_stand_date + " 23:59:59")
-                today_stand = round(sum(r["value"] for r in stand_raw if r.get("value"))) if stand_raw else 0
+        # Prefer yesterday, then report the actual fallback date when data is stale.
+        today_steps, step_date = _get_daily_health_total(
+            ah, "HKQuantityTypeIdentifierStepCount", yesterday
+        )
+        today_exercise, exercise_date = _get_daily_health_total(
+            ah, "HKQuantityTypeIdentifierAppleExerciseTime", yesterday
+        )
+        today_stand, stand_date = _get_daily_health_total(
+            ah, "HKQuantityTypeIdentifierAppleStandTime", yesterday
+        )
 
         # 90d averages for context
         step_90d = ah.query_records("HKQuantityTypeIdentifierStepCount", start, end)
@@ -233,6 +312,15 @@ async def dashboard(request: Request):
         # Sleep summary (last night)
         sleep_data = ah.get_sleep_summary(start, end)
         sleep_last = sleep_data[0] if sleep_data else None
+        sleep_total_min = 0
+        sleep_deep_pct = None
+        if sleep_last:
+            sleep_total_min = sum(
+                sleep_last.get(key, 0) or 0
+                for key in ("AsleepUnspecified", "AsleepCore", "AsleepREM", "AsleepDeep")
+            )
+            if sleep_total_min:
+                sleep_deep_pct = round((sleep_last.get("AsleepDeep", 0) or 0) / sleep_total_min * 100)
 
         latest_hrv = hrv_raw[-1]["value"] if hrv_raw else None
         latest_rhr = rhr_raw[-1]["value"] if rhr_raw else None
@@ -246,10 +334,16 @@ async def dashboard(request: Request):
             "latest_hrv": latest_hrv,
             "latest_rhr": latest_rhr,
             "latest_vo2": latest_vo2,
+            "hrv_date": hrv_raw[-1]["start_date"][:10] if hrv_raw else None,
+            "rhr_date": rhr_raw[-1]["start_date"][:10] if rhr_raw else None,
+            "vo2_date": vo2_raw[-1]["start_date"][:10] if vo2_raw else None,
             "today_steps": int(today_steps),
             "today_exercise": int(today_exercise),
+            "step_date": step_date,
+            "exercise_date": exercise_date,
+            "stand_date": stand_date,
             "yesterday": yesterday,
-            "today_stand": today_stand,
+            "today_stand": round(today_stand),
             "step_avg": step_avg,
             "ex_avg": ex_avg,
             "stand_avg": stand_avg,
@@ -260,25 +354,14 @@ async def dashboard(request: Request):
             "rhr_chg7": _chg7(rhr_trend),
             "vo2_chg7": _chg7(vo2_trend),
             "sleep_last": sleep_last,
+            "sleep_total_hours": round(sleep_total_min / 60, 1) if sleep_total_min else None,
+            "sleep_deep_pct": sleep_deep_pct,
         }
 
         # ── 恢复分析 (训练日 vs 休息日) ──
         try:
-            # 获取最近 14 天训练数据
-            tasks = []
-            for i in range(14):
-                d = (date.today() - timedelta(days=i)).isoformat()
-                tasks.append(ds.get_training(d))
-            train_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            training_dates = set()
-            for res in train_results:
-                if isinstance(res, dict):
-                    trs = res.get("res", {}).get("trains", None) or res.get("trains", [])
-                    for t in trs:
-                        td = t.get("datestr", "")
-                        if td:
-                            training_dates.add(td)
+            # 恢复分析只读缓存，避免冷启动时并发请求 Open API。
+            training_dates = _get_cached_training_dates(cache, today, days=14)
 
             if training_dates and hrv_raw:
                 # Normalize training dates to MM-DD
@@ -294,7 +377,6 @@ async def dashboard(request: Request):
                 # 平均值计算
                 train_vals, rest_vals = [], []
                 for d in hrv_chart:
-                    date_full = "2026-" + d["date"]
                     val = d["value"]
                     if d["train_day"] and val:
                         train_vals.append(val)
@@ -313,27 +395,30 @@ async def dashboard(request: Request):
                     "today_hrv": today_val,
                     "vs_train_pct": vs_train,
                     "train_days": len(training_dates),
+                    "train_samples": len(train_vals),
+                    "rest_samples": len(rest_vals),
                 }
         except Exception:
+            logger.exception("Recovery analysis failed")
             recovery = None
 
-    # Force Apple Health data (override training count & calories)
-    try:
-        aw_wos = _apple_health.query_workouts(start=yesterday, end=yesterday + " 23:59:59")
-        if aw_wos:
-            aw_c = len(aw_wos)
-            if aw_c > summary.get("total_days", 0):
-                summary["total_days"] = aw_c
-    except Exception:
-        pass
-    try:
-        cal_recs = _apple_health.query_records("HKQuantityTypeIdentifierActiveEnergyBurned", yesterday, yesterday + " 23:59:59")
-        if cal_recs:
+        # Apple Health is the only source for activity energy expenditure.
+        try:
+            aw_wos = ah.query_workouts(
+                start=yesterday, end=yesterday + " 23:59:59"
+            )
+            if len(aw_wos) > summary.get("total_days", 0):
+                summary["total_days"] = len(aw_wos)
+            cal_recs = ah.query_records(
+                "HKQuantityTypeIdentifierActiveEnergyBurned",
+                yesterday,
+                yesterday + " 23:59:59",
+            )
             cal_sum = round(sum(r["value"] for r in cal_recs if r.get("value")))
             if cal_sum > 0:
-                today_calories = cal_sum
-    except Exception:
-        pass
+                yesterday_active_calories = cal_sum
+        except Exception:
+            logger.exception("Apple Health workout summary failed")
 
     env = get_jinja_env()
     tmpl = env.get_template("dashboard.html")
@@ -347,18 +432,33 @@ async def dashboard(request: Request):
         if w1 is not None and w0 is not None:
             weight_chg7 = round(float(w1) - float(w0), 1)
 
-    freshness_svc = DataFreshnessService()
+    latest_weight_date = latest_body.get("weight", {}).get("date", "")
+    latest_weight_source = "训记"
+    for record in records:
+        if record.get("type") == "weight" and record.get("datestr") == latest_weight_date:
+            if record.get("source") == "apple_health":
+                latest_weight_source = "Apple Health"
+            break
+
+    freshness_svc = DataFreshnessService(xunji_cache=cache)
     freshness_ctx = freshness_svc.get_freshness_context()
-    return HTMLResponse(tmpl.render(
-        request=request,
-        freshness=freshness_ctx,
-        summary=summary,
-        weight_trend=body_summary["weight_trend"],
-        latest_weight=latest_body.get("weight", {}).get("value", "--"),
-        today_calories=today_calories,
-        health=health_data,
-        recovery=recovery,
-        total_sets=total_sets,
-        train_type_str=train_type_str,
-        weight_chg7=weight_chg7,
-    ))
+    context = {
+        "request": request,
+        "freshness": freshness_ctx,
+        "summary": summary,
+        "weight_trend": body_summary["weight_trend"],
+        "latest_weight": latest_body.get("weight", {}).get("value", "--"),
+        "yesterday_active_calories": yesterday_active_calories,
+        "health": health_data,
+        "recovery": recovery,
+        "total_sets": total_sets,
+        "train_type_str": train_type_str,
+        "weight_chg7": weight_chg7,
+        "latest_weight_date": latest_weight_date,
+        "latest_weight_source": latest_weight_source,
+        "training_sessions": training_sessions,
+        "training_minutes": round(training_minutes),
+    }
+    template_context = tmpl.new_context(context)
+    content_html = "".join(tmpl.blocks["content"](template_context))
+    return HTMLResponse(content_html)

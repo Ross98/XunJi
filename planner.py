@@ -1,8 +1,33 @@
 """Training plan recommendation engine — pure computation, no I/O."""
 
-from typing import Any
-from datetime import date
+from typing import Any, Optional
+from datetime import date, timedelta
 from analysis import classify_bodypart
+
+
+DEFAULT_PLAN_PREFERENCES = {
+    "goal": "保持健康",
+    "days_per_week": 4,
+    "session_minutes": 45,
+    "equipment": "哑铃、自重",
+    "injuries": "",
+}
+
+GROUP_TARGETS = {
+    "push": {"sets_30d": 32, "rest_days": 2},
+    "pull": {"sets_30d": 32, "rest_days": 2},
+    "legs": {"sets_30d": 32, "rest_days": 3},
+    "core": {"sets_30d": 20, "rest_days": 1},
+    "cardio": {"sets_30d": 12, "rest_days": 1},
+}
+
+DEFAULT_MOVEMENTS = {
+    "push": ["哑铃卧推", "哑铃推肩", "侧平举"],
+    "pull": ["哑铃划船", "哑铃弯举", "哑铃耸肩"],
+    "legs": ["哑铃酒杯深蹲", "哑铃直腿硬拉", "哑铃箭步蹲"],
+    "core": ["死虫", "俄罗斯转体", "负重仰卧起坐"],
+    "cardio": ["快走", "骑行", "慢跑"],
+}
 
 
 def _classify_movement(name: str) -> str:
@@ -28,26 +53,119 @@ def _classify_movement(name: str) -> str:
     return "other"
 
 
-def generate_plan(trains: list[dict]) -> dict[str, Any]:
-    """Generate training deficit analysis from recent training records."""
+def _normalize_preferences(preferences: Optional[dict]) -> dict:
+    result = dict(DEFAULT_PLAN_PREFERENCES)
+    if preferences:
+        result.update({k: v for k, v in preferences.items() if k in result})
+    try:
+        result["days_per_week"] = min(7, max(1, int(result["days_per_week"])))
+    except (TypeError, ValueError):
+        result["days_per_week"] = DEFAULT_PLAN_PREFERENCES["days_per_week"]
+    try:
+        result["session_minutes"] = min(180, max(15, int(result["session_minutes"])))
+    except (TypeError, ValueError):
+        result["session_minutes"] = DEFAULT_PLAN_PREFERENCES["session_minutes"]
+    return result
+
+
+def _assess_recovery(recovery: Optional[dict]) -> dict:
+    """Turn available Apple Health context into a cautious readiness summary."""
+    recovery = recovery or {}
+    score = 100
+    reasons = []
+    sleep = recovery.get("sleep_hours")
+    if sleep is not None:
+        if sleep < 5.5:
+            score -= 35
+            reasons.append("睡眠明显不足")
+        elif sleep < 7:
+            score -= 15
+            reasons.append("睡眠略少")
+        else:
+            reasons.append("睡眠充足")
+
+    hrv = recovery.get("hrv")
+    hrv_avg = recovery.get("hrv_avg")
+    if hrv and hrv_avg:
+        ratio = hrv / hrv_avg
+        if ratio < 0.8:
+            score -= 30
+            reasons.append("HRV 低于30日基线")
+        elif ratio < 0.95:
+            score -= 12
+            reasons.append("HRV 略低于基线")
+        else:
+            reasons.append("HRV 接近或高于基线")
+
+    rhr = recovery.get("rhr")
+    rhr_avg = recovery.get("rhr_avg")
+    if rhr and rhr_avg:
+        delta = rhr - rhr_avg
+        if delta >= 8:
+            score -= 25
+            reasons.append("静息心率明显偏高")
+        elif delta >= 4:
+            score -= 10
+            reasons.append("静息心率略高")
+
+    score = max(0, min(100, score))
+    if score < 50:
+        status, intensity, action = "需要恢复", "休息或低强度", "rest"
+    elif score < 75:
+        status, intensity, action = "恢复一般", "中低强度", "train"
+    else:
+        status, intensity, action = "恢复良好", "正常强度", "train"
+    if not reasons:
+        reasons.append("暂无足够恢复数据，按训练间隔判断")
+    return {
+        "score": score,
+        "status": status,
+        "intensity": intensity,
+        "action": action,
+        "reasons": reasons,
+    }
+
+
+def _training_day_indexes(days_per_week: int) -> set:
+    if days_per_week == 1:
+        return {0}
+    return {round(i * 6 / (days_per_week - 1)) for i in range(days_per_week)}
+
+
+def generate_plan(
+    trains: list[dict],
+    reference_date: Optional[date] = None,
+    preferences: Optional[dict] = None,
+    recovery: Optional[dict] = None,
+) -> dict[str, Any]:
+    """Generate an explainable training plan from the last 30 days."""
+    reference_date = reference_date or date.today()
+    preferences = _normalize_preferences(preferences)
+    readiness = _assess_recovery(recovery)
     if not trains:
         return {
             "groups": [],
             "focus_group": {"key": "full_body", "name": "全身", "deficit": 0},
             "suggested_movements": [],
+            "week_plan": [],
+            "preferences": preferences,
+            "readiness": readiness,
+            "recommendation": {
+                "action": readiness["action"],
+                "intensity": readiness["intensity"],
+                "reason": "暂无训练记录",
+            },
         }
 
     groups = {
-        "push": {"name": "推力", "count": 0, "sets": 0, "last_date": "", "days_since": 0},
-        "pull": {"name": "拉力", "count": 0, "sets": 0, "last_date": "", "days_since": 0},
-        "legs": {"name": "腿部", "count": 0, "sets": 0, "last_date": "", "days_since": 0},
-        "core": {"name": "核心", "count": 0, "sets": 0, "last_date": "", "days_since": 0},
-        "cardio": {"name": "有氧", "count": 0, "sets": 0, "last_date": "", "days_since": 0},
+        "push": {"name": "推力", "count": 0, "exercise_count": 0, "sets": 0, "last_date": "", "days_since": 0, "_dates": set()},
+        "pull": {"name": "拉力", "count": 0, "exercise_count": 0, "sets": 0, "last_date": "", "days_since": 0, "_dates": set()},
+        "legs": {"name": "腿部", "count": 0, "exercise_count": 0, "sets": 0, "last_date": "", "days_since": 0, "_dates": set()},
+        "core": {"name": "核心", "count": 0, "exercise_count": 0, "sets": 0, "last_date": "", "days_since": 0, "_dates": set()},
+        "cardio": {"name": "有氧", "count": 0, "exercise_count": 0, "sets": 0, "last_date": "", "days_since": 0, "_dates": set()},
     }
 
     mov_tracker: dict[str, dict] = {}
-    today = max(t.get("datestr", "") for t in trains) if trains else ""
-
     for t in trains:
         d = t.get("datestr", "")
         for m in t.get("movements", []):
@@ -57,7 +175,9 @@ def generate_plan(trains: list[dict]) -> dict[str, Any]:
             g = _classify_movement(name)
             if g == "other":
                 continue
-            groups[g]["count"] += 1
+            groups[g]["exercise_count"] += 1
+            if d:
+                groups[g]["_dates"].add(d)
             if d > groups[g]["last_date"]:
                 groups[g]["last_date"] = d
             for s in m.get("sets", []):
@@ -73,36 +193,106 @@ def generate_plan(trains: list[dict]) -> dict[str, Any]:
                 mov_tracker[name]["last_date"] = d
             mov_tracker[name]["count"] += 1
 
-    max_count = max(g["count"] for g in groups.values()) or 1
-    for g in groups.values():
+    for key, g in groups.items():
+        g["count"] = len(g["_dates"])
         if g["last_date"]:
-            g["days_since"] = (date.fromisoformat(today) - date.fromisoformat(g["last_date"])).days
+            g["days_since"] = max(
+                0, (reference_date - date.fromisoformat(g["last_date"])).days
+            )
         else:
-            g["days_since"] = 99
-        freq_ratio = g["count"] / max_count
-        g["deficit"] = round((1 - freq_ratio) * g["days_since"] + (1 - freq_ratio) * 20, 1)
+            g["days_since"] = 30
+        target = GROUP_TARGETS[key]["sets_30d"]
+        coverage = min(g["sets"] / target, 1)
+        recency_pressure = min(g["days_since"] / 10, 1)
+        g["target_sets"] = target
+        g["coverage_pct"] = round(coverage * 100)
+        g["deficit"] = round((1 - coverage) * 70 + recency_pressure * 30, 1)
 
-    sorted_groups = sorted(groups.values(), key=lambda x: -x["deficit"])
-    focus = sorted_groups[0]
+    active_groups = [g for g in groups.values() if g["count"] > 0]
+    focus_pool = active_groups if len(active_groups) >= 2 else list(groups.values())
+    focus = max(focus_pool, key=lambda x: x["deficit"])
     focus_key = next(k for k, v in groups.items() if v is focus)
 
     suggested = []
     for name, info in sorted(mov_tracker.items(), key=lambda x: -x[1]["count"]):
-        if info["group"] == focus["name"]:
+        if info["group"] == focus_key:
             last = info["last_date"]
             if last:
-                days_ago = (date.fromisoformat(today) - date.fromisoformat(last)).days
+                days_ago = max(0, (reference_date - date.fromisoformat(last)).days)
             else:
                 days_ago = 99
-            if days_ago >= 3:
-                suggested.append({
-                    "name": name, "group": focus["name"],
-                    "last_date": last, "days_ago": days_ago,
-                })
+            suggested.append({
+                "name": name, "group": focus["name"],
+                "last_date": last, "days_ago": days_ago,
+            })
     suggested = sorted(suggested, key=lambda x: -x["days_ago"])[:5]
+    if not suggested:
+        suggested = [
+            {"name": name, "group": focus["name"], "last_date": "", "days_ago": None}
+            for name in DEFAULT_MOVEMENTS[focus_key]
+        ]
+
+    ordered_keys = [
+        key for key, _ in sorted(groups.items(), key=lambda item: -item[1]["deficit"])
+        if key != "cardio"
+    ]
+    train_indexes = _training_day_indexes(preferences["days_per_week"])
+    if readiness["action"] == "rest" and 0 in train_indexes:
+        train_indexes.remove(0)
+        replacement = next(
+            (index for index in range(1, 7) if index not in train_indexes), None
+        )
+        if replacement is not None:
+            train_indexes.add(replacement)
+    week_plan = []
+    train_number = 0
+    weekday_names = ["一", "二", "三", "四", "五", "六", "日"]
+    for offset in range(7):
+        day = reference_date + timedelta(days=offset)
+        is_train = offset in train_indexes
+        if is_train:
+            key = ordered_keys[train_number % len(ordered_keys)]
+            train_number += 1
+            week_plan.append({
+                "date": day.isoformat(),
+                "weekday": "周" + weekday_names[day.weekday()],
+                "kind": "train",
+                "group_key": key,
+                "group": groups[key]["name"],
+                "minutes": preferences["session_minutes"],
+                "intensity": readiness["intensity"] if offset == 0 else "正常强度",
+            })
+        else:
+            week_plan.append({
+                "date": day.isoformat(),
+                "weekday": "周" + weekday_names[day.weekday()],
+                "kind": "rest",
+                "group_key": "rest",
+                "group": "恢复/轻活动",
+                "minutes": 0,
+                "intensity": "休息",
+            })
+
+    recommendation = {
+        "action": readiness["action"],
+        "intensity": readiness["intensity"],
+        "reason": (
+            "恢复指标偏弱，优先休息或低强度活动"
+            if readiness["action"] == "rest"
+            else f"{focus['name']}近30天完成{focus['sets']}组，距上次{focus['days_since']}天"
+        ),
+    }
+
+    public_groups = []
+    for key, group in groups.items():
+        public_groups.append({"key": key, **{k: v for k, v in group.items() if k != "_dates"}})
 
     return {
-        "groups": [{"key": k, **v} for k, v in groups.items()],
-        "focus_group": {"key": focus_key, **focus},
+        "groups": public_groups,
+        "focus_group": {"key": focus_key, **{k: v for k, v in focus.items() if k != "_dates"}},
         "suggested_movements": suggested,
+        "week_plan": week_plan,
+        "preferences": preferences,
+        "readiness": readiness,
+        "recommendation": recommendation,
     }

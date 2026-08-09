@@ -296,6 +296,7 @@ def movement_history(trains: list[dict], movement_name: str) -> list[dict]:
             max_w = 0.0
             vol = 0.0
             set_count = 0
+            estimated_1rm = 0.0
             for s in mov.get("sets", []):
                 w = _safe_float(s.get("weight", s.get("weight_kg", 0)))
                 reps = _safe_float(s.get("reps", 0))
@@ -303,12 +304,15 @@ def movement_history(trains: list[dict], movement_name: str) -> list[dict]:
                     max_w = w
                 vol += w * reps
                 set_count += 1
+                if w > 0 and reps > 0:
+                    estimated_1rm = max(estimated_1rm, w * (1 + reps / 30))
             if date:
                 records[date] = {
                     "date": date,
                     "max_weight": max_w,
                     "total_volume": vol,
                     "total_sets": set_count,
+                    "estimated_1rm": round(estimated_1rm, 1),
                 }
     return sorted(records.values(), key=lambda x: x["date"])
 

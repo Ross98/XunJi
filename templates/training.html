@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}训练回顾 - 训记分析{% endblock %}
 {% block content %}
-<h1>训练回顾</h1>
+<div class="page-heading-row">
+    <div><h1>训练回顾</h1><p class="page-subtitle">查看最近90天训练负荷、动作进步、频率与单日详情。</p></div>
+</div>
 
 <div class="card" style="margin-top:16px;">
     <div class="tab-bar">
@@ -13,34 +15,48 @@
 
     <!-- 容量趋势 -->
     <div class="tab-panel" id="tab-volume">
-        <div style="margin-bottom:8px;">
+        <div class="panel-toolbar">
+            <div><strong>力量训练容量</strong><span>重量 × 次数，90天视图按周汇总</span></div>
+            <div>
             <button class="btn-range active" data-range="30">30天</button>
             <button class="btn-range" data-range="90">90天</button>
+            </div>
         </div>
+        <div id="volumeSummary" class="inline-kpis"></div>
         <div class="chart-container"><canvas id="volChart"></canvas></div>
     </div>
 
     <!-- 训练分析 -->
     <div class="tab-panel active" id="tab-analysis">
+        <div class="panel-toolbar">
+            <div><strong>训练趋势</strong><span>对比最近30天或90天</span></div>
+            <div><button class="btn-range analysis-range" data-analysis-range="30">30天</button><button class="btn-range analysis-range active" data-analysis-range="90">90天</button></div>
+        </div>
         <h3 style="font-size:14px;color:#555;margin-bottom:6px;">训练时长趋势</h3>
         <div class="chart-container" style="height:140px;"><canvas id="durChart"></canvas></div>
         <h3 style="font-size:14px;color:#555;margin-bottom:6px;margin-top:14px;">热量消耗趋势</h3>
         <div class="chart-container" style="height:140px;"><canvas id="calChart"></canvas></div>
         <h3 style="font-size:14px;color:#555;margin-bottom:6px;margin-top:14px;">心率区间</h3>
         <div class="chart-container" style="height:140px;"><canvas id="hrChart"></canvas></div>
-        <h3 style="font-size:14px;color:#555;margin-bottom:6px;margin-top:14px;">训练类型总体情况</h3>
-        <div class="chart-container" style="height:500px;"><canvas id="typeChart"></canvas></div>
+        <h3 style="font-size:14px;color:#555;margin-bottom:6px;margin-top:14px;">训练类型概览</h3>
+        <div id="typeSummary" class="type-summary"></div>
     </div>
 
     <!-- 动作追踪 -->
     <div class="tab-panel" id="tab-tracker">
-        <div style="margin-bottom:8px;">
-            <select id="movementSelect" style="padding:4px 8px;font-size:14px;">
-                {% for m in movement_names %}
-                <option value="{{ m }}">{{ m }}</option>
-                {% endfor %}
-            </select>
+        <div class="panel-toolbar">
+            <div><strong>动作进步</strong><span>可搜索动作；最近选择会自动保留</span></div>
+            <div class="movement-picker">
+                <input id="movementSearch" list="movementOptions" placeholder="搜索动作" autocomplete="off">
+                <datalist id="movementOptions">
+                    {% for m in movement_options %}<option value="{{ m.name }}">{{ m.group }}</option>{% endfor %}
+                </datalist>
+                <button id="favoriteMovement" class="btn-icon" type="button" title="收藏当前动作">☆</button>
+            </div>
         </div>
+        <div id="movementShortcuts" class="movement-shortcuts" aria-label="最近和收藏动作"></div>
+        <div id="trackSummary" class="inline-kpis"></div>
+        <div id="trackState" class="inline-state" hidden></div>
         <div class="chart-container"><canvas id="trackChart"></canvas></div>
     </div>
 
@@ -55,14 +71,21 @@
                 </div>
                 <div class="hm-legend" id="hmLegend"></div>
             </div>
-            <div class="mixed-stats" id="hmStats" style="flex:0 0 160px;padding-left:16px;border-left:1px solid #eee;"></div>
+            <div class="mixed-stats" id="hmStats" style="flex:0 0 180px;padding-left:16px;border-left:1px solid #eee;">
+                <strong>最近90天</strong>
+                <span>总训练 {{ freq_stats.total }}次</span>
+                <span>训练 {{ freq_stats.days }}天 / 休息 {{ freq_stats.rest_days }}天</span>
+                <span>最长连续 {{ freq_stats.longest_streak }}天</span>
+                <span>当前连续 {{ freq_stats.current_streak }}天</span>
+                <span>周均 {{ freq_stats.weekly_average }}次</span>
+            </div>
         </div>
     </div>
 </div>
 <div class="card">
     <div class="training-merged">
         <div class="training-side">
-            <div class="detail-header">日历</div>
+            <div class="detail-header">日历 <span class="calendar-legend"><i></i>颜色越深训练量越高</span></div>
             <div id="calendar-container">
                 {% include "training_calendar.html" %}
             </div>
@@ -93,24 +116,48 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // ── Volume data ──
 const volData = {{ volume_data | tojson | safe }};
 const volLabels = Object.keys(volData).sort();
-const volValues = volLabels.map(d => volData[d]);
+
+function weeklyVolume(labels) {
+    const result = new Map();
+    labels.forEach(day => {
+        const dt = new Date(day + 'T00:00:00');
+        const monday = new Date(dt);
+        monday.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+        const key = monday.toISOString().slice(0,10);
+        result.set(key, (result.get(key) || 0) + (volData[day] || 0));
+    });
+    return [...result.entries()].map(([date, value]) => ({date, value}));
+}
 
 function renderVolume(range) {
-    const n = Math.min(range, volLabels.length);
-    const labels = volLabels.slice(-n);
-    const values = labels.map(d => volData[d] || 0);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - range + 1);
+    const days = volLabels.filter(label => new Date(label + 'T00:00:00') >= cutoff);
+    const points = range > 30 ? weeklyVolume(days) : days.map(date => ({date, value:volData[date] || 0}));
+    const labels = points.map(point => point.date);
+    const values = points.map(point => point.value);
     const ctx = document.getElementById('volChart');
     if (window._volChart) window._volChart.destroy();
-    if (labels.length === 0) return;
+    const summary = document.getElementById('volumeSummary');
+    if (labels.length === 0) { ctx.hidden = true; summary.innerHTML = '<span>暂无力量训练容量数据</span>'; return; }
+    ctx.hidden = false;
+    const avg = values.reduce((a,b)=>a+b,0) / values.length;
+    const best = Math.max(...values);
+    const split = Math.ceil(values.length/2);
+    const previous = values.slice(0, split), recent = values.slice(split);
+    const previousAvg = previous.length ? previous.reduce((a,b)=>a+b,0)/previous.length : 0;
+    const recentAvg = recent.length ? recent.reduce((a,b)=>a+b,0)/recent.length : 0;
+    const change = previousAvg && recent.length ? Math.round((recentAvg/previousAvg-1)*100) : 0;
+    summary.innerHTML = '<span><b>'+Math.round(avg)+'</b> 平均容量</span><span><b>'+Math.round(best)+'</b> 峰值</span><span><b>'+(change>0?'+':'')+change+'%</b> 前后半程</span>';
     window._volChart = new Chart(ctx, {
         type: 'line',
         data: { labels, datasets: [{ label: '容量 (kg)', data: values, borderColor: '#1a1a2e', tension: 0.3, fill: false, pointRadius: 3 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        options: { responsive: true, maintainAspectRatio: false, interaction:{mode:'index',intersect:false}, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title:{display:true,text:'容量 (kg)'} }, x:{ticks:{maxTicksLimit:range>30?10:12}} } }
     });
 }
-document.querySelectorAll('.btn-range').forEach(btn => {
+document.querySelectorAll('#tab-volume .btn-range').forEach(btn => {
     btn.addEventListener('click', function() {
-        document.querySelectorAll('.btn-range').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#tab-volume .btn-range').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         renderVolume(parseInt(this.dataset.range));
     });
@@ -119,36 +166,63 @@ renderVolume(30);
 
 // ── Training Analysis ──
 const analysisData = {{ analysis_data | tojson | safe }};
+const analysisCharts = {};
+function sliceRange(items, range) { return (items || []).slice(-Math.min(range, (items || []).length)); }
+function replaceAnalysisChart(name, element, config) {
+    if (analysisCharts[name]) analysisCharts[name].destroy();
+    analysisCharts[name] = new Chart(element, config);
+}
 
-function renderAnalysisCharts() {
+function setAnalysisEmpty(canvasId, message, empty) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const container = canvas.parentElement;
+    const stateId = canvasId + 'Empty';
+    let state = document.getElementById(stateId);
+    canvas.hidden = empty;
+    if (empty && !state) {
+        state = document.createElement('p');
+        state.id = stateId;
+        state.className = 'inline-state';
+        state.textContent = message;
+        container.appendChild(state);
+    } else if (!empty && state) {
+        state.remove();
+    }
+}
+
+function renderAnalysisCharts(range=90) {
     // Duration trend
-    const durData = analysisData.duration || [];
+    const durData = sliceRange(analysisData.duration, range);
     if (durData.length > 0) {
-        new Chart(document.getElementById('durChart'), {
+        setAnalysisEmpty('durChart', '', false);
+        replaceAnalysisChart('duration', document.getElementById('durChart'), {
             type: 'line',
             data: { labels: durData.map(d=>d.date), datasets: [{ label: '时长 (分钟)', data: durData.map(d=>d.duration_min), borderColor: '#1a1a2e', tension: 0.3, fill: false, pointRadius: 4 }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: '分钟' } } } }
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x:{ticks:{maxTicksLimit:10}}, y: { beginAtZero: true, title: { display: true, text: '分钟' } } } }
         });
     } else {
-        document.querySelector('#tab-analysis .chart-container:first-child').innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无时长数据</p>';
+        setAnalysisEmpty('durChart', '暂无时长数据', true);
     }
     
     // Calories trend
-    const calData = analysisData.calories || [];
+    const calData = sliceRange(analysisData.calories, range);
     if (calData.length > 0) {
-        new Chart(document.getElementById('calChart'), {
+        setAnalysisEmpty('calChart', '', false);
+        replaceAnalysisChart('calories', document.getElementById('calChart'), {
             type: 'bar',
             data: { labels: calData.map(d=>d.date), datasets: [{ label: '热量 (kcal)', data: calData.map(d=>d.calories), backgroundColor: '#4caf50' }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'kcal' } } } }
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x:{ticks:{maxTicksLimit:10}}, y: { beginAtZero: true, title: { display: true, text: 'kcal' } } } }
         });
     } else {
-        document.querySelectorAll('#tab-analysis .chart-container')[1].innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无热量数据</p>';
+        setAnalysisEmpty('calChart', '暂无热量数据', true);
     }
     
     // Heart rate
-    const hrData = analysisData.heart_rate || [];
+    const hrData = sliceRange(analysisData.heart_rate, range);
     if (hrData.length > 0) {
-        new Chart(document.getElementById('hrChart'), {
+        setAnalysisEmpty('hrChart', '', false);
+        replaceAnalysisChart('heartRate', document.getElementById('hrChart'), {
             type: 'line',
             data: {
                 labels: hrData.map(d=>d.date),
@@ -157,50 +231,32 @@ function renderAnalysisCharts() {
                     { label: '最高心率', data: hrData.map(d=>d.max_hr), borderColor: '#e53935', tension: 0.3, fill: false, pointRadius: 4 }
                 ]
             },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'bpm' } } } }
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x:{ticks:{maxTicksLimit:10}}, y: { suggestedMin: 50, title: { display: true, text: 'bpm' } } } }
         });
     } else {
-        document.querySelectorAll('#tab-analysis .chart-container')[2].innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无心率数据</p>';
+        setAnalysisEmpty('hrChart', '暂无心率数据', true);
     }
     
-    // Type distribution
+    // Type summary: keep each unit explicit instead of normalizing unlike axes.
     const typeData = (analysisData.type_dist || []).filter(d => d.name !== '力量训练');
+    const typeSummary = document.getElementById('typeSummary');
     if (typeData.length > 0) {
-        const colors = ['#1a1a2e','#e53935','#4caf50','#ff9800','#2196f3','#9c27b0','#795548'];
-        const dims = ['训练次数', '总时长 (小时)', '每次时长 (分)'];
-        const units = ['次', '小时', '分'];
-        const rColors = ['#2196f3','#e53935','#4caf50','#ff9800','#9c27b0','#795548'];
-        const rawVals = typeData.map(d=>[
-            d.count,
-            d.duration_min ? +(d.duration_min/60).toFixed(1) : 0,
-            d.count>0 ? Math.round(d.duration_min/d.count) : 0
-        ]);
-        const maxes = dims.map((_,i)=>Math.max(...rawVals.map(v=>v[i]),1));
-        const radSets = typeData.map((d,i)=>({
-            label: d.name,
-            data: rawVals[i].map((v,j)=>+(v/maxes[j]*100).toFixed(1)),
-            _orig: rawVals[i],
-            borderColor: rColors[i],
-            backgroundColor: rColors[i]+'22',
-            pointRadius: 4
-        }));
-        new Chart(document.getElementById('typeChart'), {
-            type: 'radar',
-            data: {labels:dims, datasets:radSets},
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: {
-                    legend: {position:'bottom'},
-                    tooltip: {callbacks: {label: ctx=>dims[ctx.dataIndex]+': '+ctx.dataset._orig[ctx.dataIndex]+units[ctx.dataIndex]}}
-                },
-                scales: {r: {beginAtZero:true, max:110, ticks:{stepSize:20, callback:v=>v+'%'}}}
-            }
-        });
+        const maxCount = Math.max(...typeData.map(d=>d.count),1);
+        typeSummary.innerHTML = typeData.map(d => {
+            const hours = d.duration_min ? (d.duration_min/60).toFixed(1) : '0.0';
+            const each = d.count ? Math.round((d.duration_min||0)/d.count) : 0;
+            return '<div class="type-summary-row"><strong>'+d.name+'</strong><div class="type-bar"><i style="width:'+Math.round(d.count/maxCount*100)+'%"></i></div><span>'+d.count+'次 · '+hours+'小时 · 单次'+each+'分钟</span></div>';
+        }).join('');
     } else {
-        document.querySelectorAll('#tab-analysis .chart-container')[3].innerHTML = '<p style="color:#888;text-align:center;padding:40px;">暂无类型数据</p>';
+        typeSummary.innerHTML = '<p class="inline-state">暂无类型数据</p>';
     }
 }
 renderAnalysisCharts();
+document.querySelectorAll('.analysis-range').forEach(btn => btn.addEventListener('click', function() {
+    document.querySelectorAll('.analysis-range').forEach(b=>b.classList.remove('active'));
+    this.classList.add('active');
+    renderAnalysisCharts(parseInt(this.dataset.analysisRange));
+}));
 
 // ── Heatmap ──
 const freqDates = new Set({{ freq_dates | tojson | safe }});
@@ -220,12 +276,13 @@ function buildFreqGrid() {
     const today = new Date();
     const grid = document.getElementById('hmGrid');
     const dows = document.getElementById('hmDow');
+    const months = document.getElementById('hmMonths');
     const legend = document.getElementById('hmLegend');
-    const stats = document.getElementById('hmStats');
     if (!grid) return;
     let lastMonth = -1;
 
     dows.innerHTML = '<span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>';
+    months.innerHTML = '';
 
     for (let w = 0; w < 13; w++) {
         const col = document.createElement('div');
@@ -235,7 +292,10 @@ function buildFreqGrid() {
         const firstDt = new Date(today);
         firstDt.setDate(today.getDate() + firstOffset);
         const m = firstDt.getMonth() + 1;
-
+        const monthLabel = document.createElement('span');
+        monthLabel.textContent = m !== lastMonth ? monthNames[m] : '';
+        months.appendChild(monthLabel);
+        lastMonth = m;
 
         for (let d = 0; d < 7; d++) {
             const dayOffset = (w - 12) * 7 + d - dowOffset;
@@ -254,6 +314,8 @@ function buildFreqGrid() {
                 if (lvl) cell.classList.add(lvl);
                 else cell.classList.add('hm-inactive');
                 cell.title = ds + ' ' + (freqCounts[ds] || 0) + '次';
+                cell.dataset.date = ds;
+                cell.addEventListener('click', function() { selectTrainingDate(ds, cell); });
             }
             col.appendChild(cell);
         }
@@ -266,34 +328,100 @@ function buildFreqGrid() {
         '<div class="hm-legend-item"><div class="hm-legend-cell hm-l2"></div>2次</div>' +
         '<div class="hm-legend-item"><div class="hm-legend-cell hm-l3"></div>3次+</div>';
 
-    let total = 0, days = 0, maxS = 0, curS = 0;
-    const dates = Object.keys(freqCounts).sort();
-    for (const d of dates) { total += freqCounts[d]; days++; }
-    const rev = [...dates].reverse();
-    for (const d of rev) { if (freqCounts[d] > 0) curS++; else break; }
-    let t = 0;
-    for (const d of dates) { if (freqCounts[d] > 0) t++; else { maxS = Math.max(maxS, t); t = 0; } }
-    maxS = Math.max(maxS, t);
-    if (days > 0) {
-        stats.innerHTML = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">最近90天统计</div>' +
-            '<div style="font-size:12px;color:#555;margin-bottom:4px;">总训练: ' + total + '次</div>' +
-            '<div style="font-size:12px;color:#555;margin-bottom:4px;">训练天数: ' + days + '天</div>' +
-            '<div style="font-size:12px;color:#555;margin-bottom:4px;">最长连续: ' + maxS + '天</div>' +
-            '<div style="font-size:12px;color:#555;margin-bottom:4px;">当前连续: ' + curS + '天</div>';
-    } else {
-        stats.innerHTML = '<div style="font-size:12px;color:#aaa;padding:20px;">暂无训练数据</div>';
-    }
 }
 buildFreqGrid();
 
+async function selectTrainingDate(dateString, cell) {
+    document.querySelectorAll('.hm-cell.selected, .cal-day.selected').forEach(el=>el.classList.remove('selected'));
+    if (cell) cell.classList.add('selected');
+    const detail = document.getElementById('training-detail');
+    detail.setAttribute('aria-busy','true');
+    detail.innerHTML = '<div class="inline-state">正在读取 '+dateString+'…</div>';
+    try {
+        const response = await fetch('/training/' + dateString);
+        if (!response.ok) throw new Error('服务器返回 ' + response.status);
+        detail.innerHTML = await response.text();
+        detail.setAttribute('aria-busy','false');
+    } catch (error) {
+        detail.innerHTML = '<div class="inline-state error">读取失败：'+error.message+'</div>';
+    }
+}
+
+document.body.addEventListener('click', function(event) {
+    const day = event.target.closest('.cal-day');
+    if (!day) return;
+    document.querySelectorAll('.cal-day.selected').forEach(el=>el.classList.remove('selected'));
+    day.classList.add('selected');
+});
+
 // ── Movement tracker ──
-const movSelect = document.getElementById('movementSelect');
+const movementNames = {{ movement_names | tojson | safe }};
+const movementSearch = document.getElementById('movementSearch');
+const favoriteButton = document.getElementById('favoriteMovement');
 const trackCtx = document.getElementById('trackChart');
+const trackState = document.getElementById('trackState');
+const trackSummary = document.getElementById('trackSummary');
 let _trackChart = null;
+
+function getFavoriteMovements() {
+    try { return JSON.parse(localStorage.getItem('xunji_favorite_movements') || '[]'); }
+    catch (error) { return []; }
+}
+
+function updateFavoriteState() {
+    if (!favoriteButton || !movementSearch) return;
+    favoriteButton.textContent = getFavoriteMovements().includes(movementSearch.value) ? '★' : '☆';
+    renderMovementShortcuts();
+}
+
+function renderMovementShortcuts() {
+    const container = document.getElementById('movementShortcuts');
+    if (!container) return;
+    const recent = localStorage.getItem('xunji_recent_movement');
+    const favorites = getFavoriteMovements().filter(name=>movementNames.includes(name));
+    const items = [];
+    if (recent && movementNames.includes(recent)) items.push({name:recent,label:'最近'});
+    favorites.forEach(name => {
+        if (!items.some(item=>item.name===name)) items.push({name,label:'收藏'});
+    });
+    container.replaceChildren();
+    if (!items.length) {
+        const hint = document.createElement('span');
+        hint.textContent = '点 ☆ 收藏常用动作';
+        container.appendChild(hint);
+        return;
+    }
+    items.forEach(item => {
+        const button = document.createElement('button');
+        const label = document.createElement('span');
+        button.type = 'button';
+        button.dataset.movement = item.name;
+        label.textContent = item.label;
+        button.append(label, document.createTextNode(item.name));
+        button.addEventListener('click', function() {
+            movementSearch.value = this.dataset.movement;
+            loadTrack(this.dataset.movement);
+        });
+        container.appendChild(button);
+    });
+}
 
 function renderTrack(data) {
     if (_trackChart) _trackChart.destroy();
-    if (!data || data.dates.length === 0) return;
+    if (!data || data.dates.length === 0) {
+        trackCtx.style.display = 'none';
+        trackSummary.innerHTML = '';
+        trackState.hidden = false;
+        trackState.textContent = '这个动作暂无可绘制的重量记录。';
+        return;
+    }
+    trackCtx.style.display = '';
+    trackState.hidden = true;
+    const latest = data.max_weight[data.max_weight.length - 1] || 0;
+    const best = Math.max(...data.max_weight, 0);
+    const oneRm = Math.max(...(data.estimated_1rm || []), 0);
+    const sets = (data.total_sets || []).reduce((a,b)=>a+b,0);
+    trackSummary.innerHTML = '<span><b>'+latest+'</b>kg 最近重量</span><span><b>'+best+'</b>kg 历史最佳</span><span><b>'+oneRm.toFixed(1)+'</b>kg 估算1RM</span><span><b>'+sets+'</b> 总组数</span>';
     _trackChart = new Chart(trackCtx, {
         type: 'line',
         data: {
@@ -316,21 +444,39 @@ function renderTrack(data) {
 }
 
 function loadTrack(movement) {
-    if (!movement) return;
+    if (!movement || !movementNames.includes(movement)) {
+        trackState.hidden = false;
+        trackState.textContent = '请从建议列表选择一个动作。';
+        return;
+    }
+    trackState.hidden = false;
+    trackState.textContent = '正在读取动作历史…';
+    localStorage.setItem('xunji_recent_movement', movement);
+    updateFavoriteState();
     fetch('/training/track/' + encodeURIComponent(movement))
-        .then(r => r.json())
+        .then(r => { if (!r.ok) throw new Error('服务器返回 '+r.status); return r.json(); })
         .then(data => renderTrack(data))
-        .catch(e => console.error('track error:', e));
+        .catch(e => { trackState.hidden=false; trackState.textContent='读取失败：'+e.message; });
 }
 
-if (movSelect) {
-    movSelect.addEventListener('change', function() {
-        loadTrack(this.value);
+if (movementSearch) {
+    const recent = localStorage.getItem('xunji_recent_movement');
+    const favorites = getFavoriteMovements();
+    movementSearch.value = (recent && movementNames.includes(recent)) ? recent : (favorites.find(name=>movementNames.includes(name)) || movementNames[0] || '');
+    movementSearch.addEventListener('change', function() { loadTrack(this.value); });
+    movementSearch.addEventListener('keydown', function(event) { if (event.key === 'Enter') loadTrack(this.value); });
+    if (movementSearch.value) loadTrack(movementSearch.value);
+    updateFavoriteState();
+}
+if (favoriteButton) {
+    favoriteButton.addEventListener('click', function() {
+        const name = movementSearch.value;
+        if (!movementNames.includes(name)) return;
+        const favorites = getFavoriteMovements();
+        const next = favorites.includes(name) ? favorites.filter(item=>item!==name) : [name, ...favorites].slice(0,12);
+        localStorage.setItem('xunji_favorite_movements', JSON.stringify(next));
+        updateFavoriteState();
     });
-    // Load first movement on page load
-    if (movSelect.options.length > 0) {
-        loadTrack(movSelect.value);
-    }
 }
 </script>
 {% endblock %}

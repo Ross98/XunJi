@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}正在加载 - 训记分析{% endblock %}
+{% block content %}
+<section class="dashboard-loader" id="dashboardLoader" aria-labelledby="dashboardLoaderTitle">
+    <div class="dashboard-loader-card">
+        <div class="dashboard-loader-mark" aria-hidden="true">迹</div>
+        <h1 id="dashboardLoaderTitle">正在准备首页</h1>
+        <p id="dashboardLoaderStage" class="dashboard-loader-stage" aria-live="polite">连接本地服务…</p>
+
+        <div class="dashboard-progress-track">
+            <div
+                id="dashboardProgressBar"
+                class="dashboard-progress-bar"
+                role="progressbar"
+                aria-label="首页加载进度"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="8"
+                style="width:8%;"
+            ></div>
+        </div>
+        <div class="dashboard-progress-meta">
+            <span id="dashboardProgressText">8%</span>
+            <span>首次启动或刷新缓存可能需要更久</span>
+        </div>
+
+        <button id="dashboardRetry" class="btn dashboard-retry" type="button" hidden>重新加载</button>
+    </div>
+</section>
+
+<div id="dashboardContent" aria-busy="true" hidden></div>
+<noscript><div class="card">首页需要 JavaScript 才能加载，请启用后重试。</div></noscript>
+
+<style>
+#dashboardLoader[hidden], #dashboardRetry[hidden], #dashboardContent[hidden] { display:none !important; }
+.dashboard-loader { min-height:60vh; display:flex; align-items:center; justify-content:center; padding:32px 0; }
+.dashboard-loader-card { width:min(520px, 100%); padding:36px; border:1px solid var(--border-color); border-radius:16px; background:var(--surface); box-shadow:var(--shadow-raised); }
+.dashboard-loader-mark { width:48px; height:48px; display:flex; align-items:center; justify-content:center; margin-bottom:20px; border-radius:14px; color:#fff; background:var(--nav-bg); font-size:22px; font-weight:700; }
+.dashboard-loader h1 { margin:0 0 8px; font-size:24px; }
+.dashboard-loader-stage { min-height:22px; margin:0 0 24px; color:var(--text-muted); font-size:14px; }
+.dashboard-progress-track { height:8px; overflow:hidden; border-radius:999px; background:var(--surface-muted); }
+.dashboard-progress-bar { height:100%; border-radius:inherit; background:linear-gradient(90deg,#1a1a2e,#e94560); transition:width .45s ease; position:relative; }
+.dashboard-progress-bar::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent); animation:dashboardProgressShine 1.4s linear infinite; }
+.dashboard-progress-meta { display:flex; justify-content:space-between; gap:16px; margin-top:9px; color:var(--text-faint); font-size:11px; }
+.dashboard-retry { margin-top:22px; }
+@keyframes dashboardProgressShine { from { transform:translateX(-100%); } to { transform:translateX(100%); } }
+@media (max-width:600px) { .dashboard-loader-card { padding:28px 22px; } .dashboard-progress-meta { flex-direction:column; gap:4px; } }
+</style>
+
+<script>
+(function() {
+    const loader = document.getElementById('dashboardLoader');
+    const content = document.getElementById('dashboardContent');
+    const bar = document.getElementById('dashboardProgressBar');
+    const progressText = document.getElementById('dashboardProgressText');
+    const stage = document.getElementById('dashboardLoaderStage');
+    const retry = document.getElementById('dashboardRetry');
+    let timer = null;
+    let progress = 8;
+
+    const stages = [
+        [0, '连接本地服务…'],
+        [2, '正在读取训练与身体缓存…'],
+        [7, '正在汇总 Apple Health 趋势…'],
+        [15, '数据较多，仍在认真处理…'],
+    ];
+
+    function setProgress(value) {
+        progress = Math.min(100, Math.round(value));
+        bar.style.width = progress + '%';
+        bar.setAttribute('aria-valuenow', String(progress));
+        progressText.textContent = progress + '%';
+    }
+
+    function startEstimatedProgress() {
+        const startedAt = Date.now();
+        clearInterval(timer);
+        timer = setInterval(function() {
+            const elapsed = (Date.now() - startedAt) / 1000;
+            const currentStage = stages.filter(item => elapsed >= item[0]).pop();
+            if (currentStage) stage.textContent = currentStage[1];
+            if (progress < 92) setProgress(progress + Math.max(1, (92 - progress) * 0.06));
+        }, 500);
+    }
+
+    function runInjectedScripts(root) {
+        root.querySelectorAll('script').forEach(function(oldScript) {
+            const script = document.createElement('script');
+            Array.from(oldScript.attributes).forEach(function(attr) {
+                script.setAttribute(attr.name, attr.value);
+            });
+            if (!oldScript.src) {
+                script.textContent = '(function(){\n' + oldScript.textContent + '\n})();';
+            }
+            oldScript.replaceWith(script);
+        });
+    }
+
+    async function loadDashboard() {
+        retry.hidden = true;
+        stage.style.color = '';
+        stage.textContent = stages[0][1];
+        setProgress(8);
+        startEstimatedProgress();
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120000);
+        try {
+            const response = await fetch('/dashboard/content', {
+                cache: 'no-store',
+                headers: { 'X-Requested-With': 'dashboard-loader' },
+                signal: controller.signal,
+            });
+            if (!response.ok) throw new Error('服务器返回 ' + response.status);
+            const html = await response.text();
+            clearInterval(timer);
+            setProgress(100);
+            stage.textContent = '加载完成';
+
+            content.innerHTML = html;
+            content.hidden = false;
+            content.setAttribute('aria-busy', 'false');
+            loader.hidden = true;
+            document.title = '总览 - 训记分析';
+            runInjectedScripts(content);
+            requestAnimationFrame(function() {
+                if (window.XUNJI_THEME) window.XUNJI_THEME.applyCharts();
+            });
+        } catch (error) {
+            clearInterval(timer);
+            setProgress(100);
+            bar.style.background = '#c62828';
+            stage.style.color = '#c62828';
+            stage.textContent = error.name === 'AbortError'
+                ? '加载超过两分钟，请检查网络或 API 状态'
+                : '首页加载失败：' + error.message;
+            retry.hidden = false;
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    retry.addEventListener('click', function() {
+        bar.style.background = '';
+        loadDashboard();
+    });
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadDashboard, { once: true });
+    } else {
+        loadDashboard();
+    }
+})();
+</script>
+{% endblock %}

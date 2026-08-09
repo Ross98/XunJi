@@ -6,10 +6,18 @@ Apple Health 导出数据导入与查询模块。
 """
 
 import sqlite3
+import logging
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, date, timezone
 from pathlib import Path
 from typing import Optional
+
+
+logger = logging.getLogger(__name__)
+
+
+class ImportCancelled(Exception):
+    """Raised after safely flushing the current batch during project shutdown."""
 
 
 HEALTH_DB_PATH = Path(__file__).parent / "apple_health_cache.sqlite"
@@ -68,7 +76,7 @@ def _init_db():
 
 # ---------- 导入 ----------
 
-def import_all(progress_callback=None, batch_size=5000):
+def import_all(progress_callback=None, batch_size=5000, cache=None, cancel_event=None):
     """流式导入导出.xml 全部数据到 SQLite (增量: 跳过已有记录)"""
     _init_db()
     xml_path = str(EXPORT_XML)
@@ -91,8 +99,14 @@ def import_all(progress_callback=None, batch_size=5000):
     record_batch = []
     workout_batch = []
     sleep_batch = []
+    parsed = 0
 
     for event, elem in ET.iterparse(xml_path, events=("end",)):
+        parsed += 1
+        if cancel_event is not None and parsed % 1000 == 0 and cancel_event.is_set():
+            if record_batch or workout_batch or sleep_batch:
+                _bulk_insert(record_batch, workout_batch, sleep_batch)
+            raise ImportCancelled("Apple Health import cancelled")
         if elem.tag == "Record":
             t = elem.get("type", "")
             sd = elem.get("startDate", "")
@@ -104,10 +118,12 @@ def import_all(progress_callback=None, batch_size=5000):
                 rec = _parse_sleep(elem)
                 if rec:
                     sleep_batch.append(rec)
+                    total += 1
             else:
                 rec = _parse_record(elem)
                 if rec:
                     record_batch.append(rec)
+                    total += 1
         elif elem.tag == "Workout":
             sd = elem.get("startDate", "")
             if sd <= max_known:
@@ -117,6 +133,7 @@ def import_all(progress_callback=None, batch_size=5000):
             wo = _parse_workout(elem)
             if wo:
                 workout_batch.append(wo)
+                total += 1
 
         elem.clear()
 
@@ -130,15 +147,17 @@ def import_all(progress_callback=None, batch_size=5000):
 
     if record_batch or workout_batch or sleep_batch:
         _bulk_insert(record_batch, workout_batch, sleep_batch)
+    if progress_callback:
+        progress_callback(total)
 
     # 记录导入时间到 xunji_cache.sqlite
     try:
-        from cache import Cache
-        Cache().set("_health_import_time", {"time": datetime.now(timezone.utc).isoformat()})
-
-
+        if cache is None:
+            from cache import Cache
+            cache = Cache()
+        cache.set("_health_import_time", {"time": datetime.now(timezone.utc).isoformat()})
     except Exception:
-        pass
+        logger.exception("Failed to record Apple Health import timestamp")
     return total
 
 
@@ -315,6 +334,24 @@ def get_import_count() -> dict:
         "total_records": sum(r["cnt"] for r in records),
         "total_workouts": sum(r["cnt"] for r in workouts),
         "health_import_time": import_time["time"] if import_time else None,
+    }
+
+
+def get_data_coverage() -> dict:
+    """Return the earliest/latest imported dates across records, workouts and sleep."""
+    with _conn() as conn:
+        row = conn.execute(
+            """SELECT MIN(day) AS start_date, MAX(day) AS end_date FROM (
+                   SELECT substr(start_date, 1, 10) AS day FROM health_records
+                   UNION ALL
+                   SELECT substr(start_date, 1, 10) AS day FROM health_workouts
+                   UNION ALL
+                   SELECT substr(start_date, 1, 10) AS day FROM health_sleep
+               )"""
+        ).fetchone()
+    return {
+        "start_date": row["start_date"] if row else None,
+        "end_date": row["end_date"] if row else None,
     }
 
 def get_latest_dates(type_filter=None):

@@ -1,15 +1,26 @@
-import sys
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+PROJECT_ENV_PATH = Path(__file__).with_name(".env")
+
+
+class ConfigurationError(RuntimeError):
+    """Raised when an active XunJi integration is not configured."""
 
 
 @dataclass
 class XunjiConfig:
-    # Required (no defaults)
+    # Active integrations
     training_api_key: str
-    diet_api_key: str
-    diet_search_api_key: str
     body_api_key: str
+
+    # Retired diet module. Kept for the legacy code, never required at runtime.
+    diet_api_key: str = ""
+    diet_search_api_key: str = ""
 
     # URLs with defaults
     training_base_url: str = "https://trains.xunjiapp.cn"
@@ -22,24 +33,18 @@ class XunjiConfig:
 
     @classmethod
     def from_env(cls) -> "XunjiConfig":
-        missing = []
-        for key in ["XUNJI_API_KEY", "XUNJI_FOOD_API_KEY", "XUNJI_FOOD_SEARCH_API_KEY", "XUNJI_BODY_API_KEY"]:
-            if key not in os.environ:
-                missing.append(key)
+        load_dotenv(PROJECT_ENV_PATH, override=False)
+        required = ("XUNJI_API_KEY", "XUNJI_BODY_API_KEY")
+        missing = [key for key in required if not os.environ.get(key)]
         if missing:
-            print("=" * 60, file=sys.stderr)
-            print("  XunJi Analysis 配置错误", file=sys.stderr)
-            print("=" * 60, file=sys.stderr)
-            print(f"  缺少环境变量: {', '.join(missing)}", file=sys.stderr)
-            print(file=sys.stderr)
-            print("  请创建 .env 文件，参考 .env.example 填入你的 API Key。", file=sys.stderr)
-            print("  从训记 App → 设置 → Open API 获取。", file=sys.stderr)
-            print("=" * 60, file=sys.stderr)
-            sys.exit(1)
+            raise ConfigurationError(
+                "缺少环境变量: "
+                f"{', '.join(missing)}。请参考 .env.example 配置训记 Open API。"
+            )
         return cls(
             training_api_key=os.environ["XUNJI_API_KEY"],
-            diet_api_key=os.environ["XUNJI_FOOD_API_KEY"],
-            diet_search_api_key=os.environ["XUNJI_FOOD_SEARCH_API_KEY"],
             body_api_key=os.environ["XUNJI_BODY_API_KEY"],
+            diet_api_key=os.environ.get("XUNJI_FOOD_API_KEY", ""),
+            diet_search_api_key=os.environ.get("XUNJI_FOOD_SEARCH_API_KEY", ""),
+            cache_path=os.environ.get("XUNJI_CACHE_PATH", "xunji_cache.sqlite"),
         )
-

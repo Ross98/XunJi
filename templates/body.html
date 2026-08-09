@@ -1,39 +1,29 @@
 {% extends "base.html" %}
-{% block title %}身体数据 - 训记分析<script>
-function toggleHeightEdit() {
-    var el = document.getElementById('heightEdit');
-    el.style.display = el.style.display === 'none' ? 'block' : 'none';
-}
-function saveHeight() {
-    var h = document.getElementById('heightInput').value;
-    fetch('/body/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({height_cm: parseInt(h)})
-    }).then(function() { location.reload(); });
-}
-function cancelHeightEdit() {
-    document.getElementById('heightEdit').style.display = 'none';
-}
-</script>
-
-{% endblock %}
+{% block title %}身体数据 - 训记分析{% endblock %}
 {% block content %}
 {% include '_freshness_bar.html' %}
-<h1>身体数据</h1>
+<div class="page-heading-row"><div><h1>身体数据</h1><p class="page-subtitle">先看体重与体脂趋势，再查看左右差异和详细围度。</p></div></div>
+{% macro measurement(key, label) -%}
+{% set item = latest.get(key,{}) %}{% set ch = latest_measurement_changes.get(key) %}
+<div class="measurement-item" title="{{ item.get('date','暂无日期') }} · {{ item.get('source','训记') }}">
+    <div class="measurement-label">{{ label }}</div>
+    <div class="measurement-value">{{ item.get('value','--') }} <span>cm</span></div>
+    <div class="measurement-meta">{{ item.get('date','暂无日期') }} · {{ item.get('source','训记') }}</div>
+    {% if ch is not none and ch != 0 %}<div class="measurement-change">较上次 {% if ch > 0 %}+{% endif %}{{ "%.1f"|format(ch) }} cm</div>
+    {% elif ch is not none %}<div class="measurement-no-change">较上次持平</div>
+    {% else %}<div class="measurement-no-change">无对比数据</div>{% endif %}
+</div>
+{%- endmacro %}
 
-<div class="card">
-    <div class="card-title">最新测量 ({{ today }})</div>
+<div class="card" id="bodyMeasurementsCard">
+    <div class="card-title">围度详情{% if latest_measurement_date %} · 最近测量 {{ latest_measurement_date }}{% endif %}</div>
+    <p class="card-description">每项使用自己的最近一次记录；将鼠标停在数值上可查看日期与来源。</p>
 
     <!-- 躯干 -->
     <div class="sub-card" style="margin-bottom:14px;padding:14px;background:#fff;border-radius:8px;">
         <div style="font-size:13px;color:#888;font-weight:600;margin-bottom:8px;">躯干</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;">
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">脖围</div><div style="font-size:17px;font-weight:600;">{{ latest.get('neck',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('neck') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">肩宽</div><div style="font-size:17px;font-weight:600;">{{ latest.get('shoulder',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('shoulder') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">胸围</div><div style="font-size:17px;font-weight:600;">{{ latest.get('chest',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('chest') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">腰围</div><div style="font-size:17px;font-weight:600;">{{ latest.get('weist',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('weist') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">臀围</div><div style="font-size:17px;font-weight:600;">{{ latest.get('bot',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('bot') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            {{ measurement('neck','脖围') }}{{ measurement('shoulder','肩宽') }}{{ measurement('chest','胸围') }}{{ measurement('weist','腰围') }}{{ measurement('bot','臀围') }}
         </div>
     </div>
 
@@ -41,10 +31,7 @@ function cancelHeightEdit() {
     <div class="sub-card" style="margin-bottom:14px;padding:14px;background:#fff;border-radius:8px;">
         <div style="font-size:13px;color:#888;font-weight:600;margin-bottom:8px;">右侧</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;">
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">大臂</div><div style="font-size:17px;font-weight:600;">{{ latest.get('arm_right',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('arm_right') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">小臂</div><div style="font-size:17px;font-weight:600;">{{ latest.get('forearm_right',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('forearm_right') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">大腿</div><div style="font-size:17px;font-weight:600;">{{ latest.get('leg_right',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('leg_right') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">小腿</div><div style="font-size:17px;font-weight:600;">{{ latest.get('cav_right',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('cav_right') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            {{ measurement('arm_right','大臂') }}{{ measurement('forearm_right','小臂') }}{{ measurement('leg_right','大腿') }}{{ measurement('cav_right','小腿') }}
         </div>
     </div>
 
@@ -52,19 +39,17 @@ function cancelHeightEdit() {
     <div class="sub-card" style="padding:14px;background:#fff;border-radius:8px;">
         <div style="font-size:13px;color:#888;font-weight:600;margin-bottom:8px;">左侧</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;">
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">大臂</div><div style="font-size:17px;font-weight:600;">{{ latest.get('arm_left',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('arm_left') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">小臂</div><div style="font-size:17px;font-weight:600;">{{ latest.get('forearm_left',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('forearm_left') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">大腿</div><div style="font-size:17px;font-weight:600;">{{ latest.get('leg_left',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('leg_left') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
-            <div style="text-align:center;padding:10px 6px;background:#fff;border-radius:8px;"><div style="font-size:12px;color:#888;">小腿</div><div style="font-size:17px;font-weight:600;">{{ latest.get('cav_left',{}).get('value','--') }} <span style="font-size:10px;color:#888;">cm</span></div>{% set ch = latest_measurement_changes.get('cav_left') %}{% if ch is not none and ch != 0 %}<div style="font-size:10px;margin-top:1px;color:{% if ch > 0 %}#e53935{% else %}#388e3c{% endif %};">{% if ch > 0 %}↑{% else %}↓{% endif %} {{ "%.1f"|format(ch|abs) }}</div>{% elif ch is not none %}<div style="font-size:10px;margin-top:1px;color:#ccc;">—</div>{% endif %}</div>
+            {{ measurement('arm_left','大臂') }}{{ measurement('forearm_left','小臂') }}{{ measurement('leg_left','大腿') }}{{ measurement('cav_left','小腿') }}
         </div>
     </div>
-
-
+</div>
 
 <!-- Range selector -->
 <div style="margin-bottom:16px;">
     <a href="/body?range=30" class="btn-range{% if range_selected == '30' %} active{% endif %}">1个月</a>
     <a href="/body?range=90" class="btn-range{% if range_selected == '90' %} active{% endif %}">3个月</a>
+    <a href="/body?range=180" class="btn-range{% if range_selected == '180' %} active{% endif %}">6个月</a>
+    <a href="/body?range=365" class="btn-range{% if range_selected == '365' %} active{% endif %}">1年</a>
     <a href="/body?range=all" class="btn-range{% if range_selected == 'all' %} active{% endif %}">全部</a>
 </div>
 
@@ -75,10 +60,10 @@ function cancelHeightEdit() {
             <div class="stat-value">{{ latest.get("weight",{}).get("value","--") }}</div>
             <div class="stat-label">最新体重 (kg)</div>
             {% if latest.get("weight",{}).get("date") %}
-            <div style="font-size:10px;color:#aaa;">{{ latest.weight.date[:10] }}</div>
+            <div class="stat-caption">{{ latest.weight.date[:10] }} · {{ latest.weight.source }}</div>
             {% endif %}
             {% if latest_weight_change is not none and latest.get("weight") %}
-            <div class="{% if latest_weight_change > 0 %}change-up{% elif latest_weight_change < 0 %}change-down{% else %}change-zero{% endif %}" style="font-size:12px;margin-top:2px;">
+            <div class="body-change" style="font-size:12px;margin-top:2px;">
                 <span class="change-arrow">{% if latest_weight_change > 0 %}↑{% elif latest_weight_change < 0 %}↓{% endif %}</span>
                 {{ "%.2f"|format(latest_weight_change|abs) if latest_weight_change else "0.00" }} kg (较上次)
             </div>
@@ -90,10 +75,10 @@ function cancelHeightEdit() {
             <div class="stat-value">{{ latest.get("bodyfat",{}).get("value","--") }}</div>
             <div class="stat-label">最新体脂率 (%)</div>
             {% if latest.get("bodyfat",{}).get("date") %}
-            <div style="font-size:10px;color:#aaa;">{{ latest.bodyfat.date }}</div>
+            <div class="stat-caption">{{ latest.bodyfat.date }} · {{ latest.bodyfat.source }}</div>
             {% endif %}
             {% if latest_bf_change is not none and latest.get("bodyfat") %}
-            <div class="{% if latest_bf_change > 0 %}change-up{% elif latest_bf_change < 0 %}change-down{% else %}change-zero{% endif %}" style="font-size:12px;margin-top:2px;">
+            <div class="body-change" style="font-size:12px;margin-top:2px;">
                 <span class="change-arrow">{% if latest_bf_change > 0 %}↑{% elif latest_bf_change < 0 %}↓{% endif %}</span>
                 {{ "%.2f"|format(latest_bf_change|abs) if latest_bf_change else "0.00" }}% (较上次)
             </div>
@@ -111,7 +96,7 @@ function cancelHeightEdit() {
             {% endif %}
             <div id="heightEdit" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid #eee;">
                 <span style="font-size:12px;color:#888;">身高</span>
-                <input type="number" id="heightInput" value="{{ height_cm }}" min="100" max="250" style="width:65px;margin:0 4px;padding:4px 6px;font-size:13px;border:1px solid #ddd;border-radius:4px;">
+                <input type="number" id="heightInput" value="{{ height_cm }}" min="100" max="250" step="0.1" style="width:70px;margin:0 4px;padding:4px 6px;font-size:13px;border:1px solid #ddd;border-radius:4px;">
                 <span style="font-size:12px;color:#888;margin-right:6px;">cm</span>
                 <button onclick="saveHeight()" class="btn btn-primary" style="padding:4px 10px;font-size:12px;">保存</button>
                 <button onclick="cancelHeightEdit()" style="padding:4px 10px;font-size:12px;border:1px solid #ddd;border-radius:4px;background:#fff;cursor:pointer;">取消</button>
@@ -121,7 +106,7 @@ function cancelHeightEdit() {
     <div class="card">
         <div class="stat">
             {% if period_weight_change is not none %}
-            <div class="stat-value {% if period_weight_change < 0 %}change-down{% elif period_weight_change > 0 %}change-up{% endif %}">
+            <div class="stat-value body-change">
                 {{ "%.1f"|format(period_weight_change) }} kg
             </div>
             {% else %}
@@ -139,7 +124,7 @@ function cancelHeightEdit() {
 
 <!-- Dual-axis chart -->
 <div class="card">
-    <div class="card-title">体重 & 体脂率趋势</div>
+    <div class="card-title chart-title-row"><span>体重 & 体脂率趋势</span><span><button class="btn-range metric-toggle active" data-dataset="all">全部</button><button class="btn-range metric-toggle" data-dataset="weight">只看体重</button><button class="btn-range metric-toggle" data-dataset="bodyfat">只看体脂</button></span></div>
     <div class="chart-large"><canvas id="dualChart"></canvas></div>
 </div>
 
@@ -149,7 +134,7 @@ function cancelHeightEdit() {
         <div class="stats-half-title">体重统计 (kg)</div>
         <div class="stats-row"><span class="label">最新</span><span class="value">{{ latest.get('weight',{}).get('value','--') }} <span style="font-size:10px;color:#aaa;">{{ latest.get('weight',{}).get('date','') }}</span></span></div>
         {% if period_weight_change is not none %}
-        <div class="stats-row"><span class="label">区间变化</span><span class="value" style="{% if period_weight_change > 0 %}color:#e53935{% elif period_weight_change < 0 %}color:#388e3c{% endif %}">{{ "+" if period_weight_change > 0 }}{{ "%.2f"|format(period_weight_change) }}</span></div>
+        <div class="stats-row"><span class="label">区间变化</span><span class="value body-change">{{ "+" if period_weight_change > 0 }}{{ "%.2f"|format(period_weight_change) }}</span></div>
         {% endif %}
         <div class="stats-row"><span class="label">最高</span><span class="value">{{ stats.weight.max|default("--") }}</span></div>
         <div class="stats-row"><span class="label">最低</span><span class="value">{{ stats.weight.min|default("--") }}</span></div>
@@ -160,7 +145,7 @@ function cancelHeightEdit() {
         <div class="stats-row"><span class="label">最新</span><span class="value">{{ latest.bodyfat.value }} <span style="font-size:10px;color:#aaa;">{{ latest.bodyfat.date }}</span></span></div>
         {% endif %}
         {% if period_bf_change is not none %}
-        <div class="stats-row"><span class="label">区间变化</span><span class="value" style="{% if period_bf_change < 0 %}color:#388e3c{% elif period_bf_change > 0 %}color:#e53935{% endif %}">{{ "+" if period_bf_change > 0 }}{{ "%.2f"|format(period_bf_change) }}</span></div>
+        <div class="stats-row"><span class="label">区间变化</span><span class="value body-change">{{ "+" if period_bf_change > 0 }}{{ "%.2f"|format(period_bf_change) }}</span></div>
         {% endif %}
         <div class="stats-row"><span class="label">最高</span><span class="value">{{ stats.bodyfat.max|default("--") }}</span></div>
         <div class="stats-row"><span class="label">最低</span><span class="value">{{ stats.bodyfat.min|default("--") }}</span></div>
@@ -168,8 +153,8 @@ function cancelHeightEdit() {
 </div>
 
 <!-- Data table -->
-<div class="card">
-    <div class="card-title">历史记录</div>
+<div class="card" id="bodyHistoryCard">
+    <div class="card-title chart-title-row"><span>历史记录 · {{ records_data|length }}天</span><span><button id="toggleBodyHistory" class="btn-range" type="button">展开全部</button><button id="exportBodyCsv" class="btn-range" type="button">导出 CSV</button></span></div>
     <div class="data-table-wrap" style="overflow-x:auto;">
         <table class="data-table">
             <thead>
@@ -178,22 +163,24 @@ function cancelHeightEdit() {
                     <th>体重 (kg)</th>
                     <th>体脂率 (%)</th>
                     <th>BMI</th>
-                    <th>来源</th>
+                    <th>体重来源</th>
+                    <th>体脂来源</th>
                     <th>体重变化</th>
                 </tr>
             </thead>
             <tbody>
-                {% for row in records_data[:3] %}
-                <tr>
+                {% for row in records_data %}
+                <tr class="body-history-row{% if loop.index > 10 %} history-extra{% endif %}">
                     <td>{{ row.date[5:] }}</td>
                     <td>{{ row.get("weight","--") }}</td>
                     <td>{{ row.get("bodyfat","--") }}</td>
                     <td>{{ row.get("bmi","--") }}</td>
-                    <td>{% if row.get("source") %}&#x1F34E;{% else %}训记{% endif %}</td>
+                    <td>{{ row.get("weight_source","--") }}</td>
+                    <td>{{ row.get("bodyfat_source","--") }}</td>
                     <td>
                         {% set wc = row.get("weight_change") %}
                         {% if wc is not none and wc != 0 %}
-                        <span class="{% if wc > 0 %}change-up{% else %}change-down{% endif %}">
+                        <span class="body-change">
                             <span class="change-arrow">{% if wc > 0 %}&#x2191;{% else %}&#x2193;{% endif %}</span>
                             {{ "%.2f"|format(wc|abs) }}
                         </span>
@@ -207,6 +194,18 @@ function cancelHeightEdit() {
         </table>
     </div>
 </div>
+
+{% if asymmetry %}
+<div class="card" id="bodyAsymmetryCard">
+    <div class="card-title">左右差异</div>
+    <p class="card-description">仅展示围度差异，不自动判断伤病或力量失衡。</p>
+    <div class="asymmetry-grid">
+    {% for item in asymmetry %}
+        <div><strong>{{ item.label }}</strong><span>右 {{ item.right }} / 左 {{ item.left }} cm</span><b>{{ item.dominant }} {% if item.difference %}多 {{ item.difference|abs }} cm{% else %}一致{% endif %}</b><em>差异 {{ item.percent }}%</em></div>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
 
 <script>
 const wData = {{ weight_trend | tojson | safe }};
@@ -240,7 +239,7 @@ const isDense = labels.length > 60;
 const ptR = isDense ? 0 : 3;
 const anim = isDense ? false : { duration: 800 };
 
-new Chart(document.getElementById('dualChart'), {
+const dualChart = new Chart(document.getElementById('dualChart'), {
     type: 'line',
     data: {
         labels,
@@ -306,6 +305,17 @@ new Chart(document.getElementById('dualChart'), {
         }
     }
 });
+
+document.querySelectorAll('.metric-toggle').forEach(button => button.addEventListener('click', function() {
+    document.querySelectorAll('.metric-toggle').forEach(item=>item.classList.remove('active'));
+    this.classList.add('active');
+    const mode = this.dataset.dataset;
+    dualChart.setDatasetVisibility(0, mode === 'all' || mode === 'weight');
+    dualChart.setDatasetVisibility(1, mode === 'all' || mode === 'bodyfat');
+    dualChart.options.scales.y.display = mode !== 'bodyfat';
+    dualChart.options.scales.y1.display = mode !== 'weight';
+    dualChart.update();
+}));
 </script>
 <script>
 function toggleHeightEdit() {
@@ -314,15 +324,56 @@ function toggleHeightEdit() {
     el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 function saveHeight() {
-    var h = document.getElementById('heightInput').value;
+    var h = Number(document.getElementById('heightInput').value);
+    if (!Number.isFinite(h) || h < 100 || h > 250) {
+        showGlobalToast('请输入100–250 cm之间的身高', 'error');
+        return;
+    }
     fetch('/body/settings', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({height_cm: parseInt(h)})
-    }).then(function() { location.reload(); });
+        body: JSON.stringify({height_cm: h})
+    }).then(function(response) {
+        if (!response.ok) throw new Error('服务器返回 '+response.status);
+        return response.json();
+    }).then(function(result) {
+        if (result.status !== 'ok') throw new Error(result.message || '保存失败');
+        showGlobalToast('身高已保存');
+        setTimeout(function(){ location.reload(); }, 400);
+    }).catch(function(error) { showGlobalToast('保存失败：'+error.message, 'error'); });
 }
 function cancelHeightEdit() {
     document.getElementById('heightEdit').style.display = 'none';
 }
+
+const historyRows = [...document.querySelectorAll('.body-history-row')];
+const historyToggle = document.getElementById('toggleBodyHistory');
+if (historyToggle) {
+    historyToggle.addEventListener('click', function() {
+        const expanded = this.dataset.expanded === 'true';
+        document.querySelectorAll('.history-extra').forEach(row=>row.hidden = expanded ? true : false);
+        this.dataset.expanded = expanded ? 'false' : 'true';
+        this.textContent = expanded ? '展开全部' : '收起';
+    });
+}
+document.querySelectorAll('.history-extra').forEach(row=>row.hidden = true);
+
+const exportButton = document.getElementById('exportBodyCsv');
+if (exportButton) exportButton.addEventListener('click', function() {
+    const lines = [['日期','体重(kg)','体脂率(%)','BMI','体重来源','体脂来源','体重变化']];
+    historyRows.forEach(row => lines.push([...row.cells].map(cell=>cell.innerText.trim())));
+    const csv = lines.map(line=>line.map(value=>'"'+String(value).replaceAll('"','""')+'"').join(',')).join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'}));
+    link.download = '身体数据-{{ today }}.csv';
+    link.click();
+    URL.revokeObjectURL(link.href);
+});
+
+// 高频指标在前，围度详情放到左右差异之后。
+const measurementsCard = document.getElementById('bodyMeasurementsCard');
+const asymmetryCard = document.getElementById('bodyAsymmetryCard');
+const historyCard = document.getElementById('bodyHistoryCard');
+if (measurementsCard) (asymmetryCard || historyCard).after(measurementsCard);
 </script>
 {% endblock %}

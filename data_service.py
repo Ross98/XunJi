@@ -12,6 +12,12 @@ class DataService:
 
     # ── Training ──
 
+    def _mark_xunji_refresh(self) -> None:
+        self._cache.set(
+            "_xunji_refresh_time",
+            {"time": datetime.now(timezone.utc).isoformat()},
+        )
+
     @staticmethod
     def _is_valid_training_response(data: object) -> bool:
         if not isinstance(data, dict):
@@ -31,6 +37,7 @@ class DataService:
         data = await self._client.fetch_training(date, full)
         if self._is_valid_training_response(data):
             self._cache.set(cache_key, data)
+            self._mark_xunji_refresh()
         return data
 
     # ── Diet ──
@@ -46,20 +53,33 @@ class DataService:
 
     # ── Body ──
 
+    @staticmethod
+    def _is_valid_body_response(data: object) -> bool:
+        if not isinstance(data, dict):
+            return False
+        res = data.get("res")
+        return isinstance(res, dict) or isinstance(data.get("records"), (list, str))
+
     async def get_body(
         self,
         start_date: str,
         end_date: str,
         types: Optional[list[str]] = None,
         limit: int = 500,
+        force_refresh: bool = False,
     ) -> dict:
         type_str = ",".join(types) if types else "all"
         cache_key = f"body:{type_str}:{start_date}:{end_date}:{limit}"
-        cached = self._cache.get(cache_key)
-        if cached is not None:
-            return cached
+        if not force_refresh:
+            cached = self._cache.get(cache_key)
+            if self._is_valid_body_response(cached):
+                return cached
+            if cached is not None:
+                self._cache.delete(cache_key)
         data = await self._client.query_body(start_date, end_date, types, limit)
-        self._cache.set(cache_key, data)
+        if self._is_valid_body_response(data):
+            self._cache.set(cache_key, data)
+            self._mark_xunji_refresh()
         return data
 
     # ── Diet Search / Upsert ──
@@ -93,9 +113,10 @@ KEY_AH_METRICS = [
 class DataFreshnessService:
     """Compute data freshness context for templates."""
 
-    def __init__(self, ah_module=None):
+    def __init__(self, ah_module=None, xunji_cache=None):
         import apple_health as _ah
         self.ah = ah_module or _ah
+        self.xunji_cache = xunji_cache
 
     def get_freshness_context(self) -> dict:
         from datetime import date
@@ -145,7 +166,12 @@ class DataFreshnessService:
             ah_days_ago = None
             ah_status = "none"
 
-        xunji_latest = today
+        xunji_refresh = (
+            self.xunji_cache.get("_xunji_refresh_time")
+            if self.xunji_cache is not None
+            else None
+        )
+        xunji_latest = xunji_refresh.get("time") if xunji_refresh else None
 
         return {
             "ah_overall_latest": ah_overall,
@@ -170,9 +196,3 @@ class DataFreshnessService:
             return f"[{days_ago}天未更新]"
         else:
             return "[未导入]"
-
-
-def get_cache():
-    """Get Cache singleton."""
-    from cache import Cache
-    return Cache()
