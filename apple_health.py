@@ -14,6 +14,7 @@ from typing import Optional
 
 
 logger = logging.getLogger(__name__)
+_IMPORT_OVERLAP_DAYS = 30
 
 
 class ImportCancelled(Exception):
@@ -76,26 +77,57 @@ def _init_db():
 
 # ---------- 导入 ----------
 
-def import_all(progress_callback=None, batch_size=5000, cache=None, cancel_event=None):
-    """流式导入导出.xml 全部数据到 SQLite (增量: 跳过已有记录)"""
+
+def _load_import_watermarks():
+    with _conn() as conn:
+        record_rows = conn.execute(
+            "SELECT type, MAX(start_date) AS latest FROM health_records GROUP BY type"
+        ).fetchall()
+        workout_rows = conn.execute(
+            """SELECT workout_activity_type AS type, MAX(start_date) AS latest
+               FROM health_workouts GROUP BY workout_activity_type"""
+        ).fetchall()
+        sleep_rows = conn.execute(
+            "SELECT type, MAX(start_date) AS latest FROM health_sleep GROUP BY type"
+        ).fetchall()
+    return (
+        {row["type"]: row["latest"] for row in record_rows},
+        {row["type"]: row["latest"] for row in workout_rows},
+        {row["type"]: row["latest"] for row in sleep_rows},
+    )
+
+
+def _is_before_import_window(start_date: str, watermark: Optional[str]) -> bool:
+    if not watermark:
+        return False
+    try:
+        latest = datetime.strptime(watermark[:19], "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return False
+    cutoff = latest - timedelta(days=_IMPORT_OVERLAP_DAYS)
+    return start_date[:19] < cutoff.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def import_all(
+    progress_callback=None,
+    batch_size=5000,
+    cache=None,
+    cancel_event=None,
+    full_reconcile=False,
+):
+    """流式导入导出.xml；默认增量导入，可完整核对全部历史。"""
     _init_db()
     xml_path = str(EXPORT_XML)
     if not Path(xml_path).exists():
         raise FileNotFoundError(f"未找到 Apple Health 导出文件: {xml_path}")
 
-    # 获取已有数据的最新时间戳，跳过旧记录
-    with _conn() as conn:
-        last_rec = conn.execute("SELECT MAX(start_date) FROM health_records").fetchone()[0]
-        last_wo = conn.execute("SELECT MAX(start_date) FROM health_workouts").fetchone()[0]
-        last_sleep = conn.execute("SELECT MAX(start_date) FROM health_sleep").fetchone()[0]
-
-    # 已知最大 start_date，只解析更新的
-    max_known = max([v for v in (last_rec, last_wo, last_sleep) if v] or ["1970-01-01"])
-    # 清理历史缓存标记
-    IMPORTER_CACHE = {}
+    if full_reconcile:
+        record_watermarks, workout_watermarks, sleep_watermarks = {}, {}, {}
+    else:
+        record_watermarks, workout_watermarks, sleep_watermarks = _load_import_watermarks()
 
     total = 0
-    skipped = 0
+    processed = 0
     record_batch = []
     workout_batch = []
     sleep_batch = []
@@ -110,45 +142,48 @@ def import_all(progress_callback=None, batch_size=5000, cache=None, cancel_event
         if elem.tag == "Record":
             t = elem.get("type", "")
             sd = elem.get("startDate", "")
-            if sd <= max_known:
+            if t == "HKCategoryTypeIdentifierSleepAnalysis":
+                watermark = sleep_watermarks.get(elem.get("value", ""))
+            else:
+                watermark = record_watermarks.get(t)
+            if _is_before_import_window(sd, watermark):
                 elem.clear()
-                skipped += 1
                 continue
             if t == "HKCategoryTypeIdentifierSleepAnalysis":
                 rec = _parse_sleep(elem)
                 if rec:
                     sleep_batch.append(rec)
-                    total += 1
+                    processed += 1
             else:
                 rec = _parse_record(elem)
                 if rec:
                     record_batch.append(rec)
-                    total += 1
+                    processed += 1
         elif elem.tag == "Workout":
             sd = elem.get("startDate", "")
-            if sd <= max_known:
+            watermark = workout_watermarks.get(elem.get("workoutActivityType", ""))
+            if _is_before_import_window(sd, watermark):
                 elem.clear()
-                skipped += 1
                 continue
             wo = _parse_workout(elem)
             if wo:
                 workout_batch.append(wo)
-                total += 1
+                processed += 1
 
         elem.clear()
 
         if len(record_batch) >= batch_size or len(workout_batch) >= batch_size or len(sleep_batch) >= batch_size:
-            _bulk_insert(record_batch, workout_batch, sleep_batch)
+            total += _bulk_insert(record_batch, workout_batch, sleep_batch)
             record_batch.clear()
             workout_batch.clear()
             sleep_batch.clear()
             if progress_callback:
-                progress_callback(total)
+                progress_callback(processed)
 
     if record_batch or workout_batch or sleep_batch:
-        _bulk_insert(record_batch, workout_batch, sleep_batch)
+        total += _bulk_insert(record_batch, workout_batch, sleep_batch)
     if progress_callback:
-        progress_callback(total)
+        progress_callback(processed)
 
     # 记录导入时间到 xunji_cache.sqlite
     try:
@@ -208,6 +243,7 @@ def _parse_sleep(elem):
 
 def _bulk_insert(records, workouts, sleep_records=None):
     with _conn() as conn:
+        before = conn.total_changes
         if records:
             conn.executemany(
                 """INSERT OR IGNORE INTO health_records
@@ -237,6 +273,8 @@ def _bulk_insert(records, workouts, sleep_records=None):
                    VALUES (:type, :start_date, :end_date, :source_name)""",
                 sleep_records,
             )
+        inserted = conn.total_changes - before
+    return inserted
 
 
 # ---------- 查询 ----------

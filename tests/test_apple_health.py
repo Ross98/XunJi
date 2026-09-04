@@ -60,6 +60,254 @@ def test_import_all_reports_number_of_new_items(isolated_health_db, tmp_path, mo
     assert progress[-1] == 3
 
 
+def test_import_all_keeps_older_record_for_new_metric_type(
+    isolated_health_db, tmp_path, monkeypatch
+):
+    ah = isolated_health_db
+    with ah._conn() as conn:
+        conn.execute(
+            """INSERT INTO health_records
+               (type, start_date, end_date, value, unit, source_name)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                "HKQuantityTypeIdentifierStepCount",
+                "2026-09-01 12:00:00 +0800",
+                "2026-09-01 12:01:00 +0800",
+                100,
+                "count",
+                "test",
+            ),
+        )
+    export_xml = tmp_path / "导出.xml"
+    export_xml.write_text(
+        """<HealthData>
+        <Record type="HKQuantityTypeIdentifierRestingHeartRate"
+                startDate="2026-08-01 08:00:00 +0800"
+                endDate="2026-08-01 08:01:00 +0800" value="60"
+                unit="count/min" sourceName="test" />
+        </HealthData>""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ah, "EXPORT_XML", export_xml)
+
+    total = ah.import_all()
+
+    assert total == 1
+    with ah._conn() as conn:
+        imported = conn.execute(
+            "SELECT COUNT(*) FROM health_records WHERE type = ?",
+            ("HKQuantityTypeIdentifierRestingHeartRate",),
+        ).fetchone()[0]
+    assert imported == 1
+
+
+def test_import_all_uses_workout_activity_watermark(
+    isolated_health_db, tmp_path, monkeypatch
+):
+    ah = isolated_health_db
+    with ah._conn() as conn:
+        conn.execute(
+            """INSERT INTO health_records
+               (type, start_date, end_date, value, unit, source_name)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                "HKQuantityTypeIdentifierStepCount",
+                "2026-09-01 12:00:00 +0800",
+                "2026-09-01 12:01:00 +0800",
+                100,
+                "count",
+                "test",
+            ),
+        )
+        conn.execute(
+            """INSERT INTO health_workouts
+               (workout_activity_type, start_date, end_date, duration, source_name)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                "HKWorkoutActivityTypeWalking",
+                "2026-07-01 09:00:00 +0800",
+                "2026-07-01 09:30:00 +0800",
+                30,
+                "test",
+            ),
+        )
+    export_xml = tmp_path / "导出.xml"
+    export_xml.write_text(
+        """<HealthData>
+        <Workout workoutActivityType="HKWorkoutActivityTypeWalking"
+                 startDate="2026-08-01 09:00:00 +0800"
+                 endDate="2026-08-01 09:30:00 +0800" duration="30"
+                 sourceName="test" />
+        </HealthData>""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ah, "EXPORT_XML", export_xml)
+
+    total = ah.import_all()
+
+    assert total == 1
+    with ah._conn() as conn:
+        imported = conn.execute("SELECT COUNT(*) FROM health_workouts").fetchone()[0]
+    assert imported == 2
+
+
+def test_import_all_uses_sleep_stage_watermark(
+    isolated_health_db, tmp_path, monkeypatch
+):
+    ah = isolated_health_db
+    with ah._conn() as conn:
+        conn.execute(
+            """INSERT INTO health_records
+               (type, start_date, end_date, value, unit, source_name)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                "HKQuantityTypeIdentifierStepCount",
+                "2026-09-01 12:00:00 +0800",
+                "2026-09-01 12:01:00 +0800",
+                100,
+                "count",
+                "test",
+            ),
+        )
+        conn.execute(
+            """INSERT INTO health_sleep
+               (type, start_date, end_date, source_name)
+               VALUES (?, ?, ?, ?)""",
+            (
+                "HKCategoryValueSleepAnalysisAsleepDeep",
+                "2026-07-01 00:00:00 +0800",
+                "2026-07-01 01:00:00 +0800",
+                "test",
+            ),
+        )
+    export_xml = tmp_path / "导出.xml"
+    export_xml.write_text(
+        """<HealthData>
+        <Record type="HKCategoryTypeIdentifierSleepAnalysis"
+                startDate="2026-08-01 00:00:00 +0800"
+                endDate="2026-08-01 01:00:00 +0800"
+                value="HKCategoryValueSleepAnalysisAsleepDeep"
+                sourceName="test" />
+        </HealthData>""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ah, "EXPORT_XML", export_xml)
+
+    total = ah.import_all()
+
+    assert total == 1
+    with ah._conn() as conn:
+        imported = conn.execute("SELECT COUNT(*) FROM health_sleep").fetchone()[0]
+    assert imported == 2
+
+
+def test_import_all_rechecks_recent_history_for_existing_metric_type(
+    isolated_health_db, tmp_path, monkeypatch
+):
+    ah = isolated_health_db
+    with ah._conn() as conn:
+        conn.execute(
+            """INSERT INTO health_records
+               (type, start_date, end_date, value, unit, source_name)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                "HKQuantityTypeIdentifierStepCount",
+                "2026-09-01 12:00:00 +0800",
+                "2026-09-01 12:01:00 +0800",
+                100,
+                "count",
+                "test",
+            ),
+        )
+    export_xml = tmp_path / "导出.xml"
+    export_xml.write_text(
+        """<HealthData>
+        <Record type="HKQuantityTypeIdentifierStepCount"
+                startDate="2026-08-20 08:00:00 +0800"
+                endDate="2026-08-20 08:01:00 +0800" value="200"
+                unit="count" sourceName="test" />
+        </HealthData>""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ah, "EXPORT_XML", export_xml)
+
+    total = ah.import_all()
+
+    assert total == 1
+    with ah._conn() as conn:
+        imported = conn.execute(
+            "SELECT COUNT(*) FROM health_records WHERE type = ?",
+            ("HKQuantityTypeIdentifierStepCount",),
+        ).fetchone()[0]
+    assert imported == 2
+
+
+def test_import_all_reports_only_rows_inserted_during_overlap(
+    isolated_health_db, tmp_path, monkeypatch
+):
+    ah = isolated_health_db
+    export_xml = tmp_path / "导出.xml"
+    export_xml.write_text(
+        """<HealthData>
+        <Record type="HKQuantityTypeIdentifierStepCount"
+                startDate="2026-09-01 12:00:00 +0800"
+                endDate="2026-09-01 12:01:00 +0800" value="100"
+                unit="count" sourceName="test" />
+        </HealthData>""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ah, "EXPORT_XML", export_xml)
+
+    first_total = ah.import_all()
+    second_total = ah.import_all()
+
+    assert first_total == 1
+    assert second_total == 0
+    with ah._conn() as conn:
+        imported = conn.execute("SELECT COUNT(*) FROM health_records").fetchone()[0]
+    assert imported == 1
+
+
+def test_import_all_full_reconcile_imports_history_before_overlap(
+    isolated_health_db, tmp_path, monkeypatch
+):
+    ah = isolated_health_db
+    with ah._conn() as conn:
+        conn.execute(
+            """INSERT INTO health_records
+               (type, start_date, end_date, value, unit, source_name)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                "HKQuantityTypeIdentifierStepCount",
+                "2026-09-01 12:00:00 +0800",
+                "2026-09-01 12:01:00 +0800",
+                100,
+                "count",
+                "test",
+            ),
+        )
+    export_xml = tmp_path / "导出.xml"
+    export_xml.write_text(
+        """<HealthData>
+        <Record type="HKQuantityTypeIdentifierStepCount"
+                startDate="2026-01-01 08:00:00 +0800"
+                endDate="2026-01-01 08:01:00 +0800" value="200"
+                unit="count" sourceName="test" />
+        </HealthData>""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ah, "EXPORT_XML", export_xml)
+
+    incremental_total = ah.import_all()
+    reconcile_total = ah.import_all(full_reconcile=True)
+
+    assert incremental_total == 0
+    assert reconcile_total == 1
+    with ah._conn() as conn:
+        imported = conn.execute("SELECT COUNT(*) FROM health_records").fetchone()[0]
+    assert imported == 2
+
+
 def test_import_all_stops_cooperatively_and_flushes_current_batch(
     isolated_health_db, tmp_path, monkeypatch
 ):
