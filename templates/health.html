@@ -111,6 +111,7 @@ drawHealthChart('healthRhrChart', {{ resting_hr|tojson|safe }}, '#3498db');
 drawHealthChart('healthVo2Chart', {{ vo2|tojson|safe }}, '#2ecc71');
 
 let importPollTimer = null;
+let importWasRunning = false;
 async function pollImportStatus() {
     try {
         const response = await fetch('/health/import/status');
@@ -121,8 +122,9 @@ async function pollImportStatus() {
         if (status) status.textContent = state.status === 'running' ? state.message + (state.processed ? ' · 已解析 '+state.processed+' 条' : '') : state.message;
         if (button) { button.disabled = state.status === 'running'; button.textContent = state.status === 'running' ? '导入进行中…' : '重新导入'; }
         if (bar) bar.style.width = state.status === 'running' ? '72%' : state.status === 'ok' ? '100%' : '0%';
+        if (state.status === 'running') importWasRunning = true;
         if (state.status === 'running') importPollTimer = setTimeout(pollImportStatus, 1200);
-        else if (state.status === 'ok') { showGlobalToast('Apple Health 导入完成，共 '+state.total+' 条新记录'); setTimeout(()=>location.reload(),800); }
+        else if (state.status === 'ok' && importWasRunning) { showGlobalToast('Apple Health 导入完成，共 '+state.total+' 条新记录'); setTimeout(()=>location.reload(),800); }
     } catch (error) { const status=document.getElementById('importStatus'); if(status) status.textContent='状态读取失败：'+error.message; }
 }
 async function startImport() {
@@ -130,6 +132,7 @@ async function startImport() {
     try {
         const response = await fetch('/health/import',{method:'POST'}); const result = await response.json();
         if (!['started','busy'].includes(result.status)) throw new Error(result.message || '无法启动导入');
+        importWasRunning = true;
         pollImportStatus();
     } catch (error) { if(button) button.disabled=false; showGlobalToast('导入失败：'+error.message,'error'); }
 }

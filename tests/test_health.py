@@ -1,6 +1,17 @@
 import asyncio
+from pathlib import Path
 
 from routes import health
+
+
+def test_health_page_only_reloads_after_observing_active_import():
+    template = (Path(__file__).parents[1] / "templates" / "health.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "let importWasRunning = false;" in template
+    assert "if (state.status === 'running') importWasRunning = true;" in template
+    assert "state.status === 'ok' && importWasRunning" in template
 
 
 def test_health_import_starts_background_job(monkeypatch):
