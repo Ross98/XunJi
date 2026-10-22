@@ -37,7 +37,11 @@ class Cache:
             ).fetchone()
             if row is None:
                 return None
-            return json.loads(row["data"])
+            try:
+                data = json.loads(row["data"])
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return None
+            return data if isinstance(data, dict) else None
 
     def set(self, key: str, data: dict):
         with self._conn() as conn:
@@ -59,7 +63,7 @@ class Cache:
 
     def delete_prefix(self, prefix: str) -> None:
         with self._conn() as conn:
-            conn.execute("DELETE FROM cache WHERE key LIKE ?", (f"{prefix}%",))
+            conn.execute("DELETE FROM cache WHERE substr(key, 1, ?) = ?", (len(prefix), prefix))
 
     def clear(self):
         with self._conn() as conn:
@@ -68,6 +72,6 @@ class Cache:
     def keys_by_prefix(self, prefix: str) -> list[str]:
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT key FROM cache WHERE key LIKE ?", (prefix + "%",)
+                "SELECT key FROM cache WHERE substr(key, 1, ?) = ?", (len(prefix), prefix)
             ).fetchall()
             return [row["key"] for row in rows]

@@ -162,3 +162,15 @@ def test_freshness_context_has_required_keys():
     assert "metrics" in ctx
     assert isinstance(ctx["metrics"], dict)
     assert ctx["xunji_latest"] == "2026-08-09T10:30:00+00:00"
+
+
+def test_corrupt_training_cache_is_replaced_from_upstream(tmp_cache):
+    key = 'training:2026-10-22:False'
+    with tmp_cache._conn() as conn:
+        conn.execute('INSERT INTO cache VALUES (?,?,?)', (key, '{broken', '2026-10-22'))
+    response = {'res': {'trains': []}}
+    client = FakeClient(response)
+    result = asyncio.run(DataService(tmp_cache, client).get_training('2026-10-22'))
+    assert result == response
+    assert client.calls == [('2026-10-22', False)]
+    assert tmp_cache.get(key) == response
