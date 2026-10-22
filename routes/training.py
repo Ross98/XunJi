@@ -18,6 +18,10 @@ from analysis import (
     heart_rate_trend,
     training_type_distribution,
     classify_bodypart,
+    session_bounds,
+    session_metrics,
+    summarize_set_metrics,
+    iter_movement_sets,
 )
 from movements_cn import apply_movement_cn_to_trains
 
@@ -198,57 +202,42 @@ def _merge_overlapping_trains(trains: list[dict]) -> list[dict]:
     """
     if not trains:
         return []
-    sorted_trains = sorted(trains, key=lambda t: t.get("start", 0))
+    sorted_trains = sorted(trains, key=lambda t: (session_bounds(t) or (float("inf"), 0))[0])
+
+    def finish(train):
+        if train["_cardio_metrics"]:
+            cardio = [m for m in train.get("movements", []) if m.get("exetype") == "cardio"]
+            metrics = summarize_set_metrics(s for m in cardio for s in iter_movement_sets(m))
+            metrics["total_duration_min"] = train["_cardio_metrics"]["total_duration_min"]
+            train["_cardio_metrics"] = metrics
+            train["_cardio_movements"] = cardio
+            train["movements"] = [m for m in train.get("movements", []) if m.get("exetype") != "cardio"]
+        return train
     merged = []
     current = dict(sorted_trains[0])
     current["_cardio_metrics"] = {}
 
     for t in sorted_trains[1:]:
-        gap = t.get("start", 0) - current.get("end", 0)
         cur_has_manual = any(m.get("exetype") != "cardio" for m in current.get("movements", []))
         cur_has_cardio = any(m.get("exetype") == "cardio" for m in current.get("movements", []))
         t_has_manual = any(m.get("exetype") != "cardio" for m in t.get("movements", []))
         t_has_cardio = any(m.get("exetype") == "cardio" for m in t.get("movements", []))
         compatible = (cur_has_manual and t_has_cardio) or (t_has_manual and cur_has_cardio)
         same_date = current.get("datestr") == t.get("datestr")
-        timed = all(
-            isinstance(train.get("start"), (int, float))
-            and isinstance(train.get("end"), (int, float))
-            and train["end"] > train["start"]
-            for train in (current, t)
-        )
-        if timed and same_date and gap < 15 * 60 * 1000 and compatible:
+        current_bounds, incoming_bounds = session_bounds(current), session_bounds(t)
+        gap = incoming_bounds[0] - current_bounds[1] if current_bounds and incoming_bounds else None
+        if gap is not None and same_date and gap < 15 * 60 * 1000 and compatible:
             current["end"] = max(current.get("end", 0), t.get("end", 0))
             current["start"] = min(current.get("start", 0), t.get("start", 0))
             current["movements"] = current.get("movements", []) + t.get("movements", [])
             # Set total session duration
             dur_min = round((current["end"] - current["start"]) / 60000, 0)
             current["_cardio_metrics"]["total_duration_min"] = dur_min
-            # The combined list already contains the incoming train's movements.
-            for m in current.get("movements", []):
-                if m.get("exetype") == "cardio":
-                    for s in m.get("sets", []):
-                        cal = s.get("calories") or (s.get("metrics", {}) or {}).get("calories")
-                        ahr = s.get("avgHeartRate") or (s.get("metrics", {}) or {}).get("avgHeartRate")
-                        mhr = s.get("maxHeartRate") or (s.get("metrics", {}) or {}).get("maxHeartRate")
-                        dur = s.get("time") or s.get("workoutTime")
-                        if cal or ahr:
-                            current["_cardio_metrics"].update({
-                                "calories": cal, "avgHeartRate": ahr,
-                                "maxHeartRate": mhr, "duration_s": dur,
-                            })
         else:
-            # Remove cardio movements from merged train (data in _cardio_metrics)
-            if current["_cardio_metrics"]:
-                current["movements"] = [m for m in current.get("movements", [])
-                                        if m.get("exetype") != "cardio"]
-            merged.append(current)
+            merged.append(finish(current))
             current = dict(t)
             current["_cardio_metrics"] = {}
-    if current["_cardio_metrics"]:
-        current["movements"] = [m for m in current.get("movements", [])
-                                if m.get("exetype") != "cardio"]
-    merged.append(current)
+    merged.append(finish(current))
     return merged
 
 def _compute_day_intensities() -> dict[str, float]:
@@ -263,15 +252,9 @@ def _compute_day_intensities() -> dict[str, float]:
         trains = extract_trains(cached)
         score = 0.0
         for train in trains:
-            dur = (train.get("end", 0) - train.get("start", 0)) / 60000
-            cal = 0.0
-            for mov in train.get("movements", []):
-                for s in mov.get("sets", []):
-                    try:
-                        c = s.get("calories") or (s.get("metrics", {}) or {}).get("calories")
-                        if c: cal += float(c)
-                    except (ValueError, TypeError):
-                        pass
+            bounds = session_bounds(train)
+            dur = (bounds[1] - bounds[0]) / 60000 if bounds else 0
+            cal = session_metrics(train)["calories"]
             score += dur * 0.5 + cal * 0.02
         if score > 0:
             raw[d] = score
@@ -343,6 +326,15 @@ async def training_calendar_fragment(request: Request, year: int, month: int):
     return HTMLResponse(tmpl.render(request=request, cal=cal_data))
 
 
+def _cardio_summary(trains: list[dict]) -> dict:
+    metrics = [session_metrics(train, cardio_only=True) for train in trains]
+    return {
+        "minutes": round(sum(row["duration_s"] for row in metrics) / 60),
+        "distance": round(sum(row["distance"] for row in metrics), 2),
+        "calories": round(sum(row["calories"] for row in metrics)),
+    }
+
+
 @router.get("/training/{dt}", response_class=HTMLResponse)
 async def training_detail_fragment(request: Request, dt: str):
     """HTMX fragment: returns training detail for a given date."""
@@ -363,22 +355,6 @@ async def training_detail_fragment(request: Request, dt: str):
         index = active_dates.index(dt)
         previous_date = active_dates[index - 1] if index > 0 else None
         next_date = active_dates[index + 1] if index < len(active_dates) - 1 else None
-    cardio_minutes = 0.0
-    cardio_distance = 0.0
-    cardio_calories = 0.0
-    for train in trains:
-        metrics = train.get("_cardio_metrics", {})
-        cardio_minutes += float(metrics.get("total_duration_min") or 0)
-        cardio_distance += float(metrics.get("distance") or 0)
-        cardio_calories += float(metrics.get("calories") or 0)
-        if not metrics:
-            for movement in train.get("movements", []):
-                if movement.get("exetype") != "cardio":
-                    continue
-                for training_set in movement.get("sets", []):
-                    cardio_minutes += float(training_set.get("time") or 0) / 60
-                    cardio_distance += float(training_set.get("distance") or 0)
-                    cardio_calories += float(training_set.get("calories") or 0)
     env = get_jinja_env()
     tmpl = env.get_template("training_detail.html")
     return HTMLResponse(tmpl.render(
@@ -389,11 +365,7 @@ async def training_detail_fragment(request: Request, dt: str):
         session_count=len(trains),
         previous_date=previous_date,
         next_date=next_date,
-        cardio_summary={
-            "minutes": round(cardio_minutes),
-            "distance": round(cardio_distance, 2),
-            "calories": round(cardio_calories),
-        },
+        cardio_summary=_cardio_summary(trains),
     ))
 
 
@@ -472,6 +444,7 @@ async def training_page(request: Request):
         date_str=today_str,
         trains=today_trains,
         summary=today_summary,
+        cardio_summary=_cardio_summary(today_trains),
         volume_data=vol_data,
         analysis_data=analysis_data,
         freq_dates=freq_dates,

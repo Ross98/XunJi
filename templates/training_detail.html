@@ -25,7 +25,7 @@
             {% set cm = train._cardio_metrics %}
             {{ "%.0f"|format(cm.total_duration_min|float if cm.total_duration_min else 0) }}分钟 ·
             {% if cm.calories %}{{ "%.0f"|format(cm.calories|float) }}kcal{% endif %}
-            {% if cm.avgHeartRate %} · 心率 {{ "%.0f"|format(cm.avgHeartRate|float) }}-{{ "%.0f"|format(cm.maxHeartRate|float) }}bpm{% endif %}
+            {% if cm.avgHeartRate or cm.maxHeartRate %} · 平均 {{ "%.0f"|format(cm.avgHeartRate|float) if cm.avgHeartRate else '--' }} · 最高 {{ "%.0f"|format(cm.maxHeartRate|float) if cm.maxHeartRate else '--' }} bpm{% endif %}
         </div>
         {% endif %}
         {% if train.note and train.note.text %}<span style="color:#666;font-size:12px;margin-left:6px;">{{ train.note.text }}</span>{% endif %}
@@ -44,8 +44,8 @@
                 {% if cs.calories and cs.calories != "0" %}
                 <span> · {{ "%.0f"|format(cs.calories|float) }}kcal</span>
                 {% endif %}
-                {% if cs.avgHeartRate %}
-                <span> · 心率 {{ "%.0f"|format(cs.avgHeartRate|float) }}-{{ "%.0f"|format(cs.maxHeartRate|float) }}bpm</span>
+                {% if cs.avgHeartRate or cs.maxHeartRate %}
+                <span> · 平均 {{ "%.0f"|format(cs.avgHeartRate|float) if cs.avgHeartRate else '--' }} · 最高 {{ "%.0f"|format(cs.maxHeartRate|float) if cs.maxHeartRate else '--' }} bpm</span>
                 {% endif %}
             {% else %}
                 <div class="set-table">

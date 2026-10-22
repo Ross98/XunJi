@@ -333,98 +333,102 @@ def training_frequency_by_date(trains: list[dict]) -> list[str]:
 # ── Training analysis ──
 
 
+def session_bounds(train: dict) -> Optional[tuple[float, float]]:
+    """Validated millisecond bounds; missing or malformed times cannot prove overlap."""
+    start, end = train.get("start"), train.get("end")
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (start, end)):
+        return None
+    try:
+        if end > start and all(math.isfinite(v) for v in (start, end, end - start)):
+            return start, end
+    except OverflowError:
+        pass
+    return None
+
+
+def _metric_number(record: dict, *keys: str) -> float:
+    nested = record.get("metrics")
+    for source in (record, nested if isinstance(nested, dict) else {}):
+        for key in keys:
+            value = _safe_float(source.get(key))
+            if value > 0:
+                return value
+    return 0.0
+
+
+def summarize_set_metrics(sets) -> dict:
+    """Aggregate independent segment metrics, preserving unknown session averages."""
+    result = {"calories": 0.0, "distance": 0.0, "duration_s": 0.0,
+              "avgHeartRate": None, "maxHeartRate": None}
+    averages = []
+    for record in sets:
+        duration = _metric_number(record, "time", "workoutTime", "duration_s")
+        result["duration_s"] += duration
+        result["calories"] += _metric_number(record, "calories")
+        result["distance"] += _metric_number(record, "distance")
+        avg = _metric_number(record, "avgHeartRate")
+        maximum = _metric_number(record, "maxHeartRate")
+        if avg:
+            averages.append((avg, duration))
+        if maximum:
+            result["maxHeartRate"] = max(result["maxHeartRate"] or 0, maximum)
+    if len(averages) == 1:
+        result["avgHeartRate"] = averages[0][0]
+    elif averages and all(duration > 0 for _, duration in averages):
+        result["avgHeartRate"] = sum(avg * duration for avg, duration in averages) / sum(
+            duration for _, duration in averages)
+    result["heart_rate_observations"] = len(averages)
+    return result
+
+
+def session_metrics(train: dict, *, cardio_only: bool = False) -> dict:
+    movements = list(train.get("movements", []))
+    preserved = train.get("_cardio_movements")
+    if isinstance(preserved, list):
+        movements.extend(preserved)
+    sets = [s for mov in movements
+            if not cardio_only or mov.get("exetype") == "cardio"
+            for s in iter_movement_sets(mov)]
+    # Older merged payloads may retain only an aggregate; never count a new
+    # aggregate again when its original segments are available.
+    if not isinstance(preserved, list) and train.get("_cardio_metrics"):
+        sets.append(train["_cardio_metrics"])
+    return summarize_set_metrics(sets)
+
+
 def training_duration_trend(trains: list[dict]) -> list[dict]:
-    """Extract training duration in minutes for each training session."""
+    """Extract observed training duration in minutes, excluding invalid intervals."""
     records = []
     for train in trains:
-        start = train.get("start")
-        end = train.get("end")
-        if start and end:
-            duration_min = round((end - start) / 60000, 1)
-            records.append({
-                "date": train.get("datestr", ""),
-                "duration_min": duration_min,
-            })
-    records.sort(key=lambda x: x["date"])
-    return records
+        bounds = session_bounds(train)
+        if bounds:
+            records.append({"date": train.get("datestr", ""),
+                            "duration_min": round((bounds[1] - bounds[0]) / 60000, 1)})
+    return sorted(records, key=lambda x: x["date"])
 
 
 def calories_trend(trains: list[dict]) -> list[dict]:
-    """Extract calorie burn for each training session from sets or _cardio_metrics."""
     records = []
     for train in trains:
-        total_cal = 0
-        # 先从 sets 里加
-        for mov in train.get("movements", []):
-            for s in mov.get("sets", []):
-                cal = _safe_float(s.get("calories", 0))
-                if cal > 0:
-                    total_cal += cal
-                else:
-                    metrics = s.get("metrics", {})
-                    if isinstance(metrics, dict):
-                        total_cal += _safe_float(metrics.get("calories", 0))
-        # 再从合并后的 _cardio_metrics 加
-        cm = train.get("_cardio_metrics", {})
-        if cm.get("calories"):
-            total_cal += _safe_float(cm["calories"])
-        if total_cal > 0:
-            records.append({
-                "date": train.get("datestr", ""),
-                "calories": total_cal,
-            })
-    records.sort(key=lambda x: x["date"])
-    return records
+        total = session_metrics(train)["calories"]
+        if total > 0:
+            records.append({"date": train.get("datestr", ""), "calories": total})
+    return sorted(records, key=lambda x: x["date"])
 
 
 def heart_rate_trend(trains: list[dict]) -> list[dict]:
-    """Extract heart rate data for each training session from sets or _cardio_metrics."""
     records = []
     for train in trains:
-        avg_hr = None
-        max_hr = None
-        for mov in train.get("movements", []):
-            for s in mov.get("sets", []):
-                ahr = s.get("avgHeartRate")
-                mhr = s.get("maxHeartRate")
-                if ahr is not None:
-                    avg_hr = max(avg_hr or 0, _safe_float(ahr))
-                if mhr is not None:
-                    max_hr = max(max_hr or 0, _safe_float(mhr))
-                metrics = s.get("metrics", {})
-                if isinstance(metrics, dict):
-                    ahr = metrics.get("avgHeartRate")
-                    mhr = metrics.get("maxHeartRate")
-                    if ahr is not None:
-                        avg_hr = max(avg_hr or 0, _safe_float(ahr))
-                    if mhr is not None:
-                        max_hr = max(max_hr or 0, _safe_float(mhr))
-        # 检查合并后的 _cardio_metrics
-        cm = train.get("_cardio_metrics", {})
-        if cm.get("avgHeartRate") is not None:
-            avg_hr = max(avg_hr or 0, _safe_float(cm["avgHeartRate"]))
-        if cm.get("maxHeartRate") is not None:
-            max_hr = max(max_hr or 0, _safe_float(cm["maxHeartRate"]))
-        if avg_hr is not None or max_hr is not None:
-            records.append({
-                "date": train.get("datestr", ""),
-                "avg_hr": avg_hr,
-                "max_hr": max_hr,
-            })
-    records.sort(key=lambda x: x["date"])
-    return records
+        metrics = session_metrics(train)
+        if metrics["heart_rate_observations"] or metrics["maxHeartRate"] is not None:
+            records.append({"date": train.get("datestr", ""),
+                            "avg_hr": metrics["avgHeartRate"], "max_hr": metrics["maxHeartRate"]})
+    return sorted(records, key=lambda x: x["date"])
 
 
 def _sum_calories(sets: list[dict]) -> float:
-    total = 0.0
-    for s in sets:
-        try:
-            c = s.get("calories") or (s.get("metrics", {}) or {}).get("calories")
-            if c:
-                total += float(c)
-        except (ValueError, TypeError):
-            pass
-    return total
+    return sum(_metric_number(record, "calories")
+               for record in iter_movement_sets({"sets": sets}))
 
 
 def training_type_distribution(trains: list[dict], cardio_only: bool = False) -> list[dict]:
@@ -434,13 +438,14 @@ def training_type_distribution(trains: list[dict], cardio_only: bool = False) ->
     calories: dict[str, float] = {}
     for train in trains:
         seen = set()
-        train_dur = (train.get("end", 0) - train.get("start", 0)) / 60000
+        bounds = session_bounds(train)
+        train_dur = (bounds[1] - bounds[0]) / 60000 if bounds else 0
         mov_count = len(train.get("movements", []))
         dur_per_mov = train_dur / mov_count if mov_count > 0 else 0
         train_cal = sum(_sum_calories(m.get("sets", [])) for m in train.get("movements", []))
         cm = train.get("_cardio_metrics", {})
         if cm.get("calories"):
-            train_cal += float(cm["calories"])
+            train_cal += _safe_float(cm["calories"])
         cal_per_mov = train_cal / mov_count if mov_count > 0 else 0
         for mov in train.get("movements", []):
             name = mov.get("name", "")

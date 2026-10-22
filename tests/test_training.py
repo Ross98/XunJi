@@ -223,3 +223,28 @@ def test_nested_sets_are_visible_in_the_detail_fragment(monkeypatch, tmp_cache):
     assert '60kg × 10次' in html
     assert '50kg × 8次' in html
     assert '第2组' in html
+
+
+def test_cardio_only_today_renders_in_full_training_page(monkeypatch, tmp_cache):
+    from starlette.requests import Request
+    from routes import training
+    today = date.today().isoformat()
+    payload = {'trains': [{'datestr': today, 'movements': [
+        {'name': '跑步', 'exetype': 'cardio', 'sets': [{'time': 1200, 'calories': 100}]},
+    ]}]}
+
+    class Service:
+        async def get_training(self, day, full=False):
+            return payload if day == today else {'trains': []}
+
+    tmp_cache.set(f'training:{today}:True', payload)
+    monkeypatch.setattr(training, 'get_cache', lambda: tmp_cache)
+    monkeypatch.setattr(training, 'get_data_service', Service)
+    monkeypatch.setattr(training, '_ensure_training_history_backfill', lambda *args: None)
+    response = asyncio.run(training.training_page(
+        Request({'type': 'http', 'path': '/training', 'headers': []})))
+    assert response.status_code == 200
+    html = response.body.decode()
+    assert '有氧分钟' in html
+    assert 'stat-value">20<' in html
+    assert 'stat-value">100<' in html
