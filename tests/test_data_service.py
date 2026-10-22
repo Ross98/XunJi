@@ -1,7 +1,7 @@
 import sys; sys.path.insert(0, '.')
 import asyncio
 import pytest
-from data_service import DataFreshnessService, DataService, extract_body_records, extract_trains
+from data_service import DataFreshnessService, DataService, extract_body_records, extract_trains, get_cached_training
 
 
 class FakeCache:
@@ -42,8 +42,7 @@ def test_training_uses_newer_summary_when_old_full_cache_is_empty(tmp_cache):
     populated = {"res": {"trains": [{"datestr": day, "movements": []}]}}
     tmp_cache.set(f"training:{day}:True", empty)
     tmp_cache.set(f"training:{day}:False", populated)
-    service = DataService(tmp_cache, FakeClient(empty))
-    assert asyncio.run(service.get_training(day, full=True)) == populated
+    assert get_cached_training(tmp_cache, day, full=True) == populated
 
 
 def test_newer_empty_full_cache_remains_authoritative(tmp_cache):

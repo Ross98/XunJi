@@ -1,6 +1,7 @@
 from datetime import date, datetime, timezone
 import json
 import math
+from time import monotonic
 from typing import Optional
 
 from api_client import XunjiAPIClient
@@ -55,35 +56,46 @@ def filter_body_records(records: list[dict]) -> list[dict]:
     return valid
 
 
-def get_cached_training(cache, day: str, full: bool = False) -> Optional[dict]:
-    """A newer populated variant can supersede an older empty cache entry."""
-    key = f"training:{day}:{full}"
-    other_key = f"training:{day}:{not full}"
-    primary = cache.get(key)
-    if extract_trains(primary):
-        return primary
-    other = cache.get(other_key)
-    if _response_records(primary, "trains") is None:
-        return other if _response_records(other, "trains") is not None else None
-    if not extract_trains(other):
-        return primary
-    # Preserve a newer authoritative empty response (for example, a deletion).
+def resolve_training_cache(cache, day: str) -> tuple[Optional[dict], Optional[bool]]:
+    """Choose one valid snapshot for every reader; mode is metadata, not a version."""
+    candidates = []
     get_mtime = getattr(cache, "get_mtime", None)
-    if get_mtime is not None:
-        try:
-            primary_time = datetime.fromisoformat(get_mtime(key))
-            other_time = datetime.fromisoformat(get_mtime(other_key))
-            if other_time > primary_time:
-                return other
-        except (TypeError, ValueError):
-            pass
-    return primary
+    for mode in (True, False):
+        key = f"training:{day}:{mode}"
+        payload = cache.get(key)
+        records = _response_records(payload, "trains")
+        if records is None:
+            continue
+        timestamp = None
+        if callable(get_mtime):
+            try:
+                timestamp = datetime.fromisoformat(get_mtime(key).replace("Z", "+00:00"))
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+            except (AttributeError, TypeError, ValueError):
+                pass
+        candidates.append((payload, mode, timestamp, bool(records)))
+    if not candidates:
+        return None, None
+    if all(candidate[2] is not None for candidate in candidates):
+        chosen = max(candidates, key=lambda candidate: (candidate[2], candidate[3], candidate[1]))
+    else:
+        # Without comparable versions, preserve observed records; prefer richer
+        # full data only when emptiness does not supply stronger evidence.
+        chosen = max(candidates, key=lambda candidate: (candidate[3], candidate[1]))
+    return chosen[0], chosen[1]
+
+
+def get_cached_training(cache, day: str, full: bool = False) -> Optional[dict]:
+    """Return the canonical snapshot; full remains accepted for existing callers."""
+    return resolve_training_cache(cache, day)[0]
 
 
 class DataService:
     def __init__(self, cache: Cache, api_client: XunjiAPIClient):
         self._cache = cache
         self._client = api_client
+        self._training_attempts = {}
 
     # ── Training ──
 
@@ -97,18 +109,35 @@ class DataService:
     def _is_valid_training_response(data: object) -> bool:
         return _response_records(data, "trains") is not None
 
-    async def get_training(self, date: str, full: bool = False) -> dict:
+    async def get_training(self, date: str, full: bool = False, *, force_refresh: bool = False) -> dict:
         cache_key = f"training:{date}:{full}"
-        cached = self._cache.get(cache_key)
-        if self._is_valid_training_response(cached):
-            return get_cached_training(self._cache, date, full)
-        if cached is not None:
+        cached, cached_mode = resolve_training_cache(self._cache, date)
+        needs_full = full and cached_mode is False and bool(extract_trains(cached))
+        if cached is not None and not force_refresh and not needs_full:
+            return cached
+        now = monotonic()
+        self._training_attempts = {key: started for key, started in self._training_attempts.items()
+                                   if now - started < 30}
+        attempt = (date, full)
+        previous = self._training_attempts.get(attempt)
+        cooldown = 30 if full else 15
+        if cached is not None and previous is not None and now - previous < cooldown:
+            return cached
+        exact = self._cache.get(cache_key)
+        if exact is not None and not self._is_valid_training_response(exact):
             self._cache.delete(cache_key)
-        data = await self._client.fetch_training(date, full)
+        self._training_attempts[attempt] = now
+        try:
+            data = await self._client.fetch_training(date, full)
+        except Exception:
+            if cached is not None:
+                return cached
+            raise
         if self._is_valid_training_response(data):
             self._cache.set(cache_key, data)
             self._mark_xunji_refresh()
-        return data
+            return data
+        return cached if cached is not None else data
 
     # ── Diet ──
 

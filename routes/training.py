@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app_state import get_jinja_env, get_data_service, get_cache
-from data_service import extract_trains, get_cached_training
+from data_service import extract_trains, get_cached_training, resolve_training_cache
 from analysis import (
     summarize_training,
     movement_history,
@@ -77,37 +77,23 @@ def _cached_training_has_data(data: object) -> bool:
 
 def _should_skip_training_backfill(cache, training_date: str, now: datetime) -> bool:
     """Keep populated caches; recheck only recent empty entries after their TTL."""
-    keys = (
-        f"training:{training_date}:True",
-        f"training:{training_date}:False",
-    )
-    empty_entries = []
-    for key in keys:
-        cached = cache.get(key)
-        if cached is None:
-            continue
-        if _cached_training_has_data(cached):
-            return True
-        empty_entries.append(key)
-
-    if not empty_entries:
+    cached, mode = resolve_training_cache(cache, training_date)
+    if cached is None:
         return False
+    if extract_trains(cached):
+        return mode is True
     if (now.date() - date.fromisoformat(training_date)).days > _EMPTY_TRAINING_RECHECK_DAYS:
         return True
-
-    for key in empty_entries:
-        mtime = cache.get_mtime(key)
-        if not mtime:
-            return True
-        try:
-            cached_at = datetime.fromisoformat(mtime)
-        except ValueError:
-            return True
-        if cached_at.tzinfo is None:
-            cached_at = cached_at.replace(tzinfo=timezone.utc)
-        if now - cached_at <= _EMPTY_TRAINING_CACHE_TTL:
-            return True
-    return False
+    mtime = cache.get_mtime(f"training:{training_date}:{mode}")
+    if not mtime:
+        return True
+    try:
+        cached_at = datetime.fromisoformat(mtime.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return True
+    if cached_at.tzinfo is None:
+        cached_at = cached_at.replace(tzinfo=timezone.utc)
+    return now - cached_at <= _EMPTY_TRAINING_CACHE_TTL
 
 
 async def _backfill_training_history(
@@ -126,14 +112,8 @@ async def _backfill_training_history(
         training_date = (end_date - timedelta(days=offset)).isoformat()
         if _should_skip_training_backfill(cache, training_date, current_time):
             continue
-        for key in (
-            f"training:{training_date}:True",
-            f"training:{training_date}:False",
-        ):
-            if cache.get(key) is not None:
-                cache.delete(key)
         try:
-            await ds.get_training(training_date, full=True)
+            await ds.get_training(training_date, full=True, force_refresh=True)
         except Exception:
             logger.exception("Training history backfill failed for %s", training_date)
         await asyncio.sleep(delay_seconds)
@@ -177,19 +157,8 @@ def _parse_date_from_cache_key(key: str) -> str | None:
 def _get_cached_training_dates() -> list[str]:
     """Get dates with NON-EMPTY cached training data, sorted."""
     cache = get_cache()
-    keys = cache.keys_by_prefix("training:")
-    dates: set[str] = set()
-    for k in keys:
-        d = _parse_date_from_cache_key(k)
-        if not d:
-            continue
-        cached = cache.get(k)
-        if not cached:
-            continue
-        trains = extract_trains(cached)
-        if trains:
-            dates.add(d)
-    return sorted(dates)
+    days = {_parse_date_from_cache_key(key) for key in cache.keys_by_prefix("training:")}
+    return sorted(day for day in days if day and extract_trains(get_cached_training(cache, day)))
 
 
 

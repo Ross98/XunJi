@@ -81,7 +81,8 @@ class FakeDataService:
     def __init__(self):
         self.calls = []
 
-    async def get_training(self, training_date, full=False):
+    async def get_training(self, training_date, full=False, *, force_refresh=False):
+        assert force_refresh is True
         self.calls.append((training_date, full))
         return {"res": {"trains": []}}
 
@@ -135,7 +136,8 @@ def test_backfill_refreshes_stale_empty_cache_for_recent_date():
     ))
 
     assert service.calls == [("2026-08-03", True)]
-    assert cache.deleted == [key]
+    assert cache.deleted == []
+    assert cache.get(key) == {"res": {"trains": []}}
 
 
 def test_ensure_backfill_does_not_create_second_live_task(monkeypatch):
