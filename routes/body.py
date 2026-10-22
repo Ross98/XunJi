@@ -285,6 +285,8 @@ def _build_table_data(records: list[dict], changes: dict[str, float], ah_dates: 
     by_date: dict[str, dict] = {}
     for rec in filter_body_records(records):
         d, t, v = rec["datestr"], rec["type"], float(rec["value"])
+        if t not in {"weight", "bodyfat"}:
+            continue
         by_date.setdefault(d, {"date": d})
         by_date[d][t] = round(v, 2)
         by_date[d][f"{t}_change"] = changes.get(f"{t}:{d}")

@@ -128,3 +128,65 @@ def test_left_right_comparison_requires_same_measurement_day(
         assert '同日测量' in card
         assert '多 1.0 cm' in card
         assert '差异 3.4%' in card
+
+
+def test_weight_history_excludes_circumference_only_dates():
+    records = [
+        {'datestr': '2026-10-23', 'type': 'arm_left', 'value': 29},
+        {'datestr': '2026-10-22', 'type': 'weight', 'value': 70},
+        {'datestr': '2026-10-21', 'type': 'bodyfat', 'value': 18},
+    ]
+    rows = body._build_table_data(records, body_changes(records))
+    assert [row['date'] for row in rows] == ['2026-10-22', '2026-10-21']
+    assert rows[0]['weight'] == 70 and rows[1]['bodyfat'] == 18
+
+
+def test_body_history_preserves_year_and_observed_zero_change(
+    monkeypatch, isolated_health_db, tmp_cache, tmp_path
+):
+    from html.parser import HTMLParser
+
+    class Service:
+        async def get_body(self, *args, **kwargs):
+            return {'records': [
+                {'datestr': '2026-01-01', 'type': 'weight', 'value': 70},
+                {'datestr': '2025-01-01', 'type': 'weight', 'value': 70},
+            ]}
+
+    monkeypatch.setattr(body, 'get_data_service', Service)
+    monkeypatch.setattr(body, 'get_cache', lambda: tmp_cache)
+    monkeypatch.setattr(body, 'BODY_CONFIG_PATH', str(tmp_path / 'body.json'))
+    response = asyncio.run(body.body_page(
+        Request({'type': 'http', 'path': '/body', 'headers': []}), range='all'))
+
+    class Rows(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.rows = []
+            self.row = None
+            self.cell = None
+
+        def handle_starttag(self, tag, attrs):
+            if tag == 'tr' and 'body-history-row' in dict(attrs).get('class', ''):
+                self.row = []
+            if tag == 'td' and self.row is not None:
+                self.cell = ''
+
+        def handle_data(self, data):
+            if self.cell is not None:
+                self.cell += data
+
+        def handle_endtag(self, tag):
+            if tag == 'td' and self.cell is not None:
+                self.row.append(self.cell.strip())
+                self.cell = None
+            if tag == 'tr' and self.row is not None:
+                self.rows.append(self.row)
+                self.row = None
+
+    parsed = Rows()
+    parsed.feed(response.body.decode())
+    # CSV exports cell text, so date and delta must remain unambiguous here.
+    assert [row[0] for row in parsed.rows] == ['2026-01-01', '2025-01-01']
+    assert parsed.rows[0][-1] == '0.00'
+    assert parsed.rows[1][-1] == '--'

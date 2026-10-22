@@ -171,7 +171,7 @@
             <tbody>
                 {% for row in records_data %}
                 <tr class="body-history-row{% if loop.index > 10 %} history-extra{% endif %}">
-                    <td>{{ row.date[5:] }}</td>
+                    <td>{{ row.date }}</td>
                     <td>{{ row.get("weight","--") }}</td>
                     <td>{{ row.get("bodyfat","--") }}</td>
                     <td>{{ row.get("bmi","--") }}</td>
@@ -184,6 +184,8 @@
                             <span class="change-arrow">{% if wc > 0 %}&#x2191;{% else %}&#x2193;{% endif %}</span>
                             {{ "%.2f"|format(wc|abs) }}
                         </span>
+                        {% elif wc is not none %}
+                        <span class="change-zero">0.00</span>
                         {% else %}
                         <span class="change-zero">--</span>
                         {% endif %}
