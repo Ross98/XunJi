@@ -1,11 +1,55 @@
 from __future__ import annotations
 
 import json
+import math
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Optional
 
 import httpx
 
 from config import XunjiConfig
+
+
+def _nonnegative_seconds(value) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    try:
+        seconds = float(value)
+        return seconds if math.isfinite(seconds) and seconds >= 0 else None
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def _rate_limit_delay(response: httpx.Response, data=None) -> Optional[float]:
+    containers = [data] if isinstance(data, dict) and data.get("success") is False else []
+    if containers and isinstance(data.get("res"), dict):
+        containers.append(data["res"])
+    limited = response.status_code == 429 or any(
+        "retry_after_ms" in container or any(
+            "too frequent" in str(container.get(key, "")).lower()
+            for key in ("res", "error", "message")
+        ) for container in containers
+    )
+    if not limited:
+        return None
+    retry_after = response.headers.get("Retry-After")
+    seconds = _nonnegative_seconds(retry_after)
+    if seconds is not None:
+        return seconds
+    if retry_after:
+        try:
+            deadline = parsedate_to_datetime(retry_after)
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+            return max(0, (deadline - datetime.now(timezone.utc)).total_seconds())
+        except (ValueError, TypeError, OverflowError):
+            pass
+    for container in containers:
+        milliseconds = _nonnegative_seconds(container.get("retry_after_ms"))
+        if milliseconds is not None:
+            return milliseconds / 1000
+    return 30.0
 
 
 def make_headers(api_key: str) -> dict:
@@ -52,11 +96,20 @@ class XunjiAPIClient:
         import asyncio
         for attempt in range(retries + 1):
             resp = await self._client.post(url, headers=headers, json=payload)
-            if resp.status_code == 429 and attempt < retries:
-                await asyncio.sleep(30)
+            if resp.status_code == 429:
+                try:
+                    data = resp.json()
+                except ValueError:
+                    data = None
+            else:
+                resp.raise_for_status()
+                data = resp.json()
+            delay = _rate_limit_delay(resp, data)
+            if delay is not None and attempt < retries:
+                await asyncio.sleep(delay)
                 continue
             resp.raise_for_status()
-            return resp.json()
+            return data
 
     # ── Training ──
 
