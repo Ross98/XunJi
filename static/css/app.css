@@ -496,9 +496,9 @@ li { margin: 4px 0; }
     margin-right: 6px;
 }
 .btn-range.active {
-    background: #1a1a2e;
-    color: #fff;
-    border-color: #1a1a2e;
+    background: var(--text-strong);
+    color: var(--surface);
+    border-color: var(--text-strong);
 }
 
 /* ── Heatmap ── */

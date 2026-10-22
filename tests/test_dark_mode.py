@@ -61,7 +61,7 @@ def test_base_template_tracks_system_theme_and_rethemes_live_charts():
     assert "backdropColor = colors.surface" in html
     assert "darkChartPalette" in html
     assert "themeColorMeta" in html
-    assert "app.css?v=20261022-readable-text" in html
+    assert "app.css?v=20261023-calendar-ranges" in html
 
 
 def test_theme_picker_offers_system_light_and_dark_and_persists_choice():
@@ -95,3 +95,20 @@ def test_freshness_bar_uses_semantic_status_classes():
 
     assert 'class="freshness-bar freshness-fresh"' in html
     assert "background:#e8f5e9" not in html
+
+
+def test_selected_range_is_distinct_from_surface_and_text_is_readable():
+    css = (STATIC_DIR / 'css' / 'app.css').read_text()
+    rule = re.search(r'\.btn-range\.active\s*\{([^}]+)\}', css, re.DOTALL).group(1)
+
+    def color(property_name, theme):
+        value = re.search(r'(?<![\w-])' + property_name + r':\s*([^;]+)', rule).group(1).strip()
+        variable = re.fullmatch(r'var\((--[\w-]+)\)', value)
+        resolved = theme[variable.group(1)] if variable else value
+        return '#' + ''.join(character * 2 for character in resolved[1:]) if len(resolved) == 4 else resolved
+
+    for block in re.findall(r':root\s*\{([^}]+)\}', css, re.DOTALL)[:2]:
+        theme = _theme_tokens(block)
+        fill, foreground = color('background', theme), color('color', theme)
+        assert _contrast_ratio(fill, foreground) >= 4.5
+        assert _contrast_ratio(fill, theme['--surface']) >= 3

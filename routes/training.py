@@ -13,10 +13,6 @@ from analysis import (
     summarize_training,
     movement_history,
     training_frequency_by_date,
-    training_duration_trend,
-    calories_trend,
-    heart_rate_trend,
-    training_type_distribution,
     classify_bodypart,
     session_bounds,
     session_metrics,
@@ -24,6 +20,7 @@ from analysis import (
     iter_movement_sets,
 )
 from movements_cn import apply_movement_cn_to_trains
+from training_charts import build_chart_ranges, select_training_window
 
 router = APIRouter(tags=["training"])
 logger = logging.getLogger(__name__)
@@ -397,18 +394,18 @@ async def training_page(request: Request):
     all_trains = []
     for d in sorted(active_dates):
         d_dt = datetime.strptime(d, "%Y-%m-%d").date()
-        if (today - d_dt).days <= 90:
+        if 0 <= (today - d_dt).days < 90:
             cached = get_cached_training(cache, d)
             if cached:
                 cached_trains = extract_trains(cached)
                 all_trains.extend(cached_trains)
 
+    all_trains = select_training_window(all_trains, today, 90)
     all_trains = apply_movement_cn_to_trains(all_trains)
     all_trains_raw = list(all_trains)
     all_trains = _merge_overlapping_trains(all_trains)
 
-    from analysis import training_volume_by_date
-    vol_data = training_volume_by_date(all_trains)
+    vol_data, analysis_data = build_chart_ranges(all_trains, all_trains_raw, today)
     freq_dates = training_frequency_by_date(all_trains)
     freq_counts: dict[str, int] = {}
     for t in all_trains:
@@ -416,12 +413,6 @@ async def training_page(request: Request):
         if d:
             freq_counts[d] = freq_counts.get(d, 0) + 1
     freq_stats = compute_frequency_stats(freq_counts, today=today)
-    analysis_data = {
-        "duration": training_duration_trend(all_trains),
-        "calories": calories_trend(all_trains),
-        "heart_rate": heart_rate_trend(all_trains),
-        "type_dist": training_type_distribution(all_trains_raw, cardio_only=True),
-    }
 
     # Unique movement names for the movement tracker dropdown
     EXCLUDED_MOVEMENTS = {"力量训练", "传统力量训练", "功能性力量训练", "步行"}
