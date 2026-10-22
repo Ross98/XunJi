@@ -360,6 +360,25 @@ def session_bounds(train: dict) -> Optional[tuple[float, float]]:
     return None
 
 
+def training_time_coverage(trains: list[dict]) -> dict:
+    """Observed clock-time coverage, with overlapping sessions counted once."""
+    intervals = [bounds for train in trains if (bounds := session_bounds(train)) is not None]
+    incomplete = len(intervals) < len(trains)
+    if not intervals:
+        return {"minutes": None, "incomplete": incomplete}
+    intervals.sort()
+    start, end = intervals[0]
+    total = 0
+    for next_start, next_end in intervals[1:]:
+        if next_start > end:
+            total += end - start
+            start, end = next_start, next_end
+        else:
+            end = max(end, next_end)
+    total += end - start
+    return {"minutes": total / 60000, "incomplete": incomplete}
+
+
 def _metric_number(record: dict, *keys: str) -> float:
     nested = record.get("metrics")
     for source in (record, nested if isinstance(nested, dict) else {}):

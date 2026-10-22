@@ -17,7 +17,8 @@ from data_service import (
     extract_trains as _extract_trains,
     extract_body_records as _extract_body_records,
 )
-from analysis import summarize_training, summarize_body, body_latest
+from analysis import summarize_training, summarize_body, body_latest, training_time_coverage
+from routes.training import _merge_overlapping_trains
 from sleep_stats import confirmed_sleep_minutes
 from activity_stats import daily_activity_totals, confirmed_activity_average
 
@@ -200,22 +201,16 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
 
     # ── 训记数据: 缓存优先 + 后台刷新 ──
     training_data = await _get_training_or_empty(ds, yesterday)
-    trains = _extract_trains(training_data)
+    trains = _merge_overlapping_trains(_extract_trains(training_data))
     summary = summarize_training(trains)
     training_sessions = len(trains)
-    training_minutes = 0
-    for train in trains:
-        cardio = train.get("_cardio_metrics", {})
-        try:
-            training_minutes += float(cardio.get("total_duration_min") or 0)
-        except (TypeError, ValueError):
-            pass
+    training_time = training_time_coverage(trains)
 
     # 训练类型标签 & set 数
     all_types = set()
     total_sets = summary["total_sets"]
     for t in trains:
-        for m in t.get("movements", []):
+        for m in t.get("movements", []) + t.get("_cardio_movements", []):
             mt = m.get("type") or ""
             if not mt or mt[0].islower():
                 mt = m.get("name", "")
@@ -376,11 +371,6 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
 
         # Apple Health is the only source for activity energy expenditure.
         try:
-            aw_wos = ah.query_workouts(
-                start=yesterday, end=yesterday + " 23:59:59"
-            )
-            if len(aw_wos) > summary.get("total_days", 0):
-                summary["total_days"] = len(aw_wos)
             cal_recs = ah.query_records(
                 "HKQuantityTypeIdentifierActiveEnergyBurned",
                 yesterday,
@@ -391,7 +381,7 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
             if energy.get("value") is not None:
                 yesterday_active_calories = round(energy["value"])
         except Exception:
-            logger.exception("Apple Health workout summary failed")
+            logger.exception("Apple Health activity energy summary failed")
 
     env = get_jinja_env()
     tmpl = env.get_template("dashboard.html")
@@ -431,7 +421,8 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
         "latest_weight_date": latest_weight_date,
         "latest_weight_source": latest_weight_source,
         "training_sessions": training_sessions,
-        "training_minutes": round(training_minutes),
+        "training_minutes": training_time["minutes"],
+        "training_duration_incomplete": training_time["incomplete"],
     }
     template_context = tmpl.new_context(context)
     content_html = "".join(tmpl.blocks["content"](template_context))

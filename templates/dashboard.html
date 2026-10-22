@@ -14,8 +14,9 @@
     <a href="/training" class="card stat-card-link"><div class="stat">
         <div class="stat-value">{{ training_sessions if training_sessions > 0 else "--" }}{% if training_sessions > 0 %}<span class="stat-unit">次</span>{% endif %}</div>
         <div class="stat-label">昨日训练</div>
-        {% if total_sets > 0 %}
-        <div class="stat-context">{{ total_sets }}组{% if training_minutes %} · {{ training_minutes }}分钟{% endif %}</div>
+        {% if training_sessions > 0 %}
+        <div class="stat-context">{% if total_sets > 0 %}{{ total_sets }}组 · {% endif %}{% if training_minutes is not none %}{% if training_duration_incomplete %}已知覆盖{% else %}覆盖{% endif %} {% if training_minutes < 1 %}不足1{% else %}{{ "%.1f"|format(training_minutes) }}{% endif %}分钟{% else %}时长未确认{% endif %}</div>
+        {% if training_duration_incomplete and training_minutes is not none %}<div class="stat-caption">部分记录缺少有效起止时间</div>{% endif %}
         {% endif %}
         {% if train_type_str %}
         <div class="stat-caption">{{ train_type_str }}</div>
