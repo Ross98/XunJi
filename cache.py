@@ -1,5 +1,6 @@
 import sqlite3
 import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -19,10 +20,15 @@ class Cache:
                 )
             """)
 
+    @contextmanager
     def _conn(self):
         conn = sqlite3.connect(self._db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def get(self, key: str) -> Optional[dict]:
         with self._conn() as conn:

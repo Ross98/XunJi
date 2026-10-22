@@ -7,6 +7,7 @@ Apple Health 导出数据导入与查询模块。
 
 import sqlite3
 import logging
+from contextlib import contextmanager
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, date, timezone
 from pathlib import Path
@@ -27,10 +28,15 @@ EXPORT_DIR = Path(__file__).parent / "Apple Health" / "apple_health_export"
 EXPORT_XML = EXPORT_DIR / "导出.xml"
 
 
+@contextmanager
 def _conn():
     conn = sqlite3.connect(str(HEALTH_DB_PATH))
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _init_db():
