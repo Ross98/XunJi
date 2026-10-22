@@ -36,6 +36,8 @@ def test_body_merge_preserves_xunji_priority(isolated_health_db):
     {"res": {"records": "{broken"}},
     {"res": {"records": None}},
     {"res": {"records": []}},
+    {"records": [{"datestr": "2026-10-22", "type": "weight", "value": "unknown"} ]},
+    {"records": [{"datestr": "2026-10-22", "type": "weight", "value": "NaN"} ]},
     {"res": {"records": [{"datestr": "2026-10-22", "type": "weight", "value": "70"}]}},
 ])
 def test_body_page_tolerates_bad_api_payload(payload, monkeypatch, isolated_health_db, tmp_cache, tmp_path):
@@ -50,3 +52,10 @@ def test_body_page_tolerates_bad_api_payload(payload, monkeypatch, isolated_heal
     monkeypatch.setattr(body, "BODY_CONFIG_PATH", str(config))
     request = Request({"type": "http", "path": "/body", "headers": []})
     assert asyncio.run(body.body_page(request, range="90")).status_code == 200
+
+
+@pytest.mark.parametrize('value', ['unknown', 'NaN', 'Infinity', True])
+def test_body_table_does_not_calculate_bmi_from_invalid_values(value):
+    records = [{'datestr': '2026-10-22', 'type': 'weight', 'value': value}]
+    rows = body._build_table_data(records, {})
+    assert not rows or ('weight' not in rows[0] and 'bmi' not in rows[0])

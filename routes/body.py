@@ -7,7 +7,7 @@ import os
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from app_state import get_cache, get_jinja_env, get_data_service
-from data_service import DataFreshnessService, extract_body_records
+from data_service import DataFreshnessService, extract_body_records, filter_body_records
 from analysis import summarize_body, body_latest, body_stats, body_changes, calculate_bmi
 from local_settings import write_json_atomic
 
@@ -59,7 +59,7 @@ def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list
     ah_bf = ah.query_records_desc("HKQuantityTypeIdentifierBodyFatPercentage", start, end)
 
     if not ah_weight and not ah_bf:
-        return sorted(records, key=lambda row: row.get("datestr", ""), reverse=True), set()
+        return sorted(filter_body_records(records), key=lambda row: row.get("datestr", ""), reverse=True), set()
 
     ah_dates = set()
     # Convert Apple Health records to 训记 format, merge by date
@@ -101,7 +101,7 @@ def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list
                     "source": "apple_health",
                 })
 
-    merged.sort(key=lambda row: row.get("datestr", ""), reverse=True)
+    merged = sorted(filter_body_records(merged), key=lambda row: row.get("datestr", ""), reverse=True)
     return merged, ah_dates
 
 
@@ -284,28 +284,17 @@ async def update_body_settings(data: dict):
 def _build_table_data(records: list[dict], changes: dict[str, float], ah_dates: set = None, height_cm: float = 170.0) -> list[dict]:
     """Merge weight and bodyfat records by date into table rows (newest first)."""
     by_date: dict[str, dict] = {}
-    for rec in records:
-        d = rec.get("datestr", "")
-        if not d:
-            continue
-        if d not in by_date:
-            by_date[d] = {"date": d}
-        t = rec.get("type", "")
-        v = rec.get("value")
-        if t and v is not None:
-            try:
-                by_date[d][t] = round(float(v), 2)
-            except (ValueError, TypeError):
-                pass
-            by_date[d][f"{t}_change"] = changes.get(f"{t}:{d}")
-            if t == "weight":
-                bmi_val = calculate_bmi(float(v), height_cm)
-                if bmi_val is not None:
-                    by_date[d]["bmi"] = bmi_val
-            # Track source
-            src = rec.get("source", "")
-            by_date[d][f"{t}_source"] = "Apple Health" if src == "apple_health" else "训记"
-        # Mark Apple Health source for dates with any AH data
+    for rec in filter_body_records(records):
+        d, t, v = rec["datestr"], rec["type"], float(rec["value"])
+        by_date.setdefault(d, {"date": d})
+        by_date[d][t] = round(v, 2)
+        by_date[d][f"{t}_change"] = changes.get(f"{t}:{d}")
+        if t == "weight":
+            bmi_val = calculate_bmi(v, height_cm)
+            if bmi_val is not None:
+                by_date[d]["bmi"] = bmi_val
+        src = rec.get("source", "")
+        by_date[d][f"{t}_source"] = "Apple Health" if src == "apple_health" else "训记"
     for d in by_date:
         if ah_dates and d in ah_dates:
             by_date[d].setdefault("source", "Apple Health")

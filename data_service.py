@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
+import math
 from typing import Optional
 
 from api_client import XunjiAPIClient
@@ -31,7 +32,27 @@ def extract_trains(data: object) -> list[dict]:
 
 
 def extract_body_records(data: object) -> list[dict]:
-    return _response_records(data, "records", decode_json=True) or []
+    return filter_body_records(_response_records(data, "records", decode_json=True) or [])
+
+
+def filter_body_records(records: list[dict]) -> list[dict]:
+    """Keep usable measurements without converting missing or invalid values to zero."""
+    valid = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if not isinstance(record.get("type"), str) or not record["type"]:
+            continue
+        if isinstance(record.get("value"), bool):
+            continue
+        try:
+            date.fromisoformat(record.get("datestr", ""))
+            if not math.isfinite(float(record.get("value"))):
+                continue
+        except (TypeError, ValueError, OverflowError):
+            continue
+        valid.append(record)
+    return valid
 
 
 def get_cached_training(cache, day: str, full: bool = False) -> Optional[dict]:

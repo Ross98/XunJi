@@ -210,3 +210,18 @@ def test_newer_workout_advances_overall_freshness_only(isolated_health_db):
     assert result['ah_status'] == 'fresh'
     assert result['metrics']['hrv']['latest'] == older
     assert result['metrics']['hrv']['status'] == 'expired'
+
+
+@pytest.mark.parametrize('bad_value', ['unknown', 'NaN', 'Infinity', [], {}, True, None])
+def test_body_extractor_skips_invalid_measurements_without_losing_valid_rows(bad_value):
+    good = {'datestr': '2026-10-21', 'type': 'weight', 'value': '70'}
+    bad = {'datestr': '2026-10-22', 'type': 'weight', 'value': bad_value}
+    payload = {'res': {'records': [bad, good]}}
+    assert extract_body_records(payload) == [good]
+    assert payload['res']['records'] == [bad, good]
+
+
+@pytest.mark.parametrize('changes', [{'datestr': None}, {'datestr': 'bad-date'}, {'type': []}])
+def test_body_extractor_rejects_unusable_record_identity(changes):
+    bad = {'datestr': '2026-10-22', 'type': 'weight', 'value': '70', **changes}
+    assert extract_body_records({'records': [bad]}) == []
