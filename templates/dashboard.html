@@ -98,12 +98,12 @@
 </div>
 
 <script>
-const HRV_DATA = {{ health.hrv_trend | safe }};
-const RHR_DATA = {{ health.rhr_trend | safe }};
-const VO2_DATA = {{ health.vo2_trend | safe }};
-const HRV_MA7 = {{ health.hrv_ma7 | safe }};
-const RHR_MA7 = {{ health.rhr_ma7 | safe }};
-const VO2_MA7 = {{ health.vo2_ma7 | safe }};
+const HRV_DATA = {{ health.hrv_trend | tojson }};
+const RHR_DATA = {{ health.rhr_trend | tojson }};
+const VO2_DATA = {{ health.vo2_trend | tojson }};
+const HRV_MA7 = {{ health.hrv_ma7 | tojson }};
+const RHR_MA7 = {{ health.rhr_ma7 | tojson }};
+const VO2_MA7 = {{ health.vo2_ma7 | tojson }};
 function mkLine(id, data, maValues, color) {
     if (!data || data.length === 0) return;
     const datasets = [
@@ -174,10 +174,10 @@ else initHealthCharts();
 </div>
 
 <script>
-const recData = {{ recovery.chart_data | safe }};
+const recData = {{ recovery.chart_data | tojson }};
 if (recData && recData.length > 0) {
-    const trainRef = {{ recovery.train_avg }};
-    const restRef = {{ recovery.rest_avg }};
+    const trainRef = {{ recovery.train_avg | tojson }};
+    const restRef = {{ recovery.rest_avg | tojson }};
     const ptColors = recData.map(p => {
         const v = p.value;
         if (restRef && v >= restRef) return '#388e3c';

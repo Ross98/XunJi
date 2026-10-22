@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from collections import defaultdict
-import json
 import logging
 from typing import Optional
 
@@ -307,9 +306,9 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
 
         health_data = {
             "has_data": True,
-            "hrv_trend": json.dumps(hrv_trend),
-            "rhr_trend": json.dumps(rhr_trend),
-            "vo2_trend": json.dumps(vo2_trend),
+            "hrv_trend": hrv_trend,
+            "rhr_trend": rhr_trend,
+            "vo2_trend": vo2_trend,
             "latest_hrv": latest_hrv,
             "latest_rhr": latest_rhr,
             "latest_vo2": latest_vo2,
@@ -326,9 +325,9 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
             "step_avg": step_avg,
             "ex_avg": ex_avg,
             "stand_avg": stand_avg,
-            "hrv_ma7": json.dumps(_ma7(hrv_trend)),
-            "rhr_ma7": json.dumps(_ma7(rhr_trend)),
-            "vo2_ma7": json.dumps(_ma7(vo2_trend)),
+            "hrv_ma7": _ma7(hrv_trend),
+            "rhr_ma7": _ma7(rhr_trend),
+            "vo2_ma7": _ma7(vo2_trend),
             "hrv_chg7": _chg7(hrv_trend),
             "rhr_chg7": _chg7(rhr_trend),
             "vo2_chg7": _chg7(vo2_trend),
@@ -368,7 +367,7 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
                 vs_train = round(today_val / train_avg * 100 - 100, 1) if today_val and train_avg else None
 
                 recovery = {
-                    "chart_data": json.dumps(hrv_chart),
+                    "chart_data": hrv_chart,
                     "train_avg": train_avg,
                     "rest_avg": rest_avg,
                     "today_hrv": today_val,

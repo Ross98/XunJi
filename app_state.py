@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from api_client import XunjiAPIClient
 from cache import Cache
@@ -15,6 +15,7 @@ STATIC_DIR = BASE_DIR / "static"
 jinja_env = Environment(
     loader=FileSystemLoader(str(TEMPLATES_DIR)),
     auto_reload=True,
+    autoescape=select_autoescape(("html", "xml")),
 )
 jinja_env.globals["iter_movement_sets"] = iter_movement_sets
 
