@@ -12,10 +12,14 @@ async def close_route_tasks() -> None:
     """Stop process-local jobs before shared clients are closed."""
     from routes import health, training
 
-    await asyncio.gather(
+    results = await asyncio.gather(
         training.stop_training_background_tasks(),
         health.stop_health_background_tasks(),
+        return_exceptions=True,
     )
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
 
 
 def register_routes(app: FastAPI):

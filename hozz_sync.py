@@ -8,6 +8,7 @@ import math
 import os
 import sqlite3
 import threading
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -37,7 +38,7 @@ def _initialize():
             if not exists:
                 backup = ah.HEALTH_DB_PATH.with_name(
                     ah.HEALTH_DB_PATH.name + ".pre-hozz-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".bak")
-                with sqlite3.connect(backup) as target:
+                with closing(sqlite3.connect(backup)) as target:
                     conn.backup(target)
     ah._init_db()
     with ah._conn() as conn:

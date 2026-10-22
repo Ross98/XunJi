@@ -170,3 +170,15 @@ def test_sleep_only_store_is_imported_and_shown(monkeypatch, isolated_health_db,
     assert '尚未导入 Apple Health' not in html
     assert '最近一晚睡眠' in html
     assert '6.0小时' in html
+
+
+def test_cancelled_hozz_job_does_not_report_completion(monkeypatch):
+    monkeypatch.setattr(health.hs, 'sync', lambda **kwargs:
+                        {'status': 'cancelled', 'inserted': 0, 'errors': []})
+    monkeypatch.setattr(health, 'get_cache', lambda: object())
+    health._reset_import_state_for_tests()
+    asyncio.run(health._run_hozz_job())
+    result = asyncio.run(health.import_status())
+    assert result['status'] == 'cancelled'
+    assert '已停止' in result['message']
+    assert '完成' not in result['message']

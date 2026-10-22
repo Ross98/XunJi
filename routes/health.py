@@ -301,9 +301,16 @@ async def _run_hozz_job():
     try:
         result = await run_in_threadpool(
             hs.sync, cache=get_cache(), cancel_event=_import_cancel_event)
-        _set_import_state(status="ok" if result["status"] == "ok" else "error",
+        if result["status"] == "cancelled":
+            status, message = "cancelled", "Hozz 同步已停止"
+        elif result["status"] == "ok":
+            status, message = "ok", "Hozz 同步完成"
+        else:
+            status = "error"
+            message = "；".join(result["errors"]) or "Hozz 同步未完成"
+        _set_import_state(status=status,
                           total=result["inserted"], processed=result["inserted"],
-                          message="Hozz 同步完成" if not result["errors"] else "；".join(result["errors"]),
+                          message=message,
                           finished_at=datetime.now(timezone.utc).isoformat())
     except Exception as exc:
         _set_import_state(status="error", message=f"Hozz 同步失败: {exc}",

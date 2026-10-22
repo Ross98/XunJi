@@ -161,3 +161,21 @@ def test_status_fresh_check_and_never_checked_state(isolated_health_db, tmp_path
     folder.mkdir()
     hs.sync(folder)
     assert hs.status()["check_stale"] is False
+
+
+def test_schema_backup_closes_its_destination_connection(isolated_health_db, monkeypatch):
+    import sqlite3
+    import hozz_sync as hs
+    original = sqlite3.connect
+    connections = []
+
+    def connect(*args, **kwargs):
+        conn = original(*args, **kwargs)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(sqlite3, 'connect', connect)
+    hs._initialize()
+    for conn in connections:
+        with pytest.raises(sqlite3.ProgrammingError, match='closed'):
+            conn.execute('SELECT 1')
