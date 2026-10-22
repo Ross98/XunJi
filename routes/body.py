@@ -188,15 +188,20 @@ async def body_page(
             right_value, left_value = float(right), float(left)
         except (TypeError, ValueError):
             continue
+        right_date = latest[right_key].get("date")
+        left_date = latest[left_key].get("date")
+        comparable = bool(right_date and right_date == left_date)
         average = (right_value + left_value) / 2
-        difference = round(right_value - left_value, 1)
+        difference = round(right_value - left_value, 1) if comparable else None
         asymmetry.append({
             "label": label,
             "right": right_value,
             "left": left_value,
+            "right_date": right_date,
+            "left_date": left_date,
             "difference": difference,
-            "percent": round(abs(difference) / average * 100, 1) if average else 0,
-            "dominant": "右侧" if difference > 0 else "左侧" if difference < 0 else "平衡",
+            "percent": (round(abs(difference) / average * 100, 1) if average else 0) if comparable else None,
+            "dominant": ("右侧" if difference > 0 else "左侧" if difference < 0 else "平衡") if comparable else None,
         })
     # Period change (first vs last in range)
     w_chrono = sorted(

@@ -198,10 +198,15 @@
 {% if asymmetry %}
 <div class="card" id="bodyAsymmetryCard">
     <div class="card-title">左右差异</div>
-    <p class="card-description">仅展示围度差异，不自动判断伤病或力量失衡。</p>
+    <p class="card-description">仅比较同日测量的围度，不自动判断伤病或力量失衡。</p>
     <div class="asymmetry-grid">
     {% for item in asymmetry %}
-        <div><strong>{{ item.label }}</strong><span>右 {{ item.right }} / 左 {{ item.left }} cm</span><b>{{ item.dominant }} {% if item.difference %}多 {{ item.difference|abs }} cm{% else %}一致{% endif %}</b><em>差异 {{ item.percent }}%</em></div>
+        <div><strong>{{ item.label }}</strong><span>右 {{ item.right }} / 左 {{ item.left }} cm</span>
+        {% if item.difference is not none %}
+        <b>{{ item.dominant }} {% if item.difference %}多 {{ item.difference|abs }} cm{% else %}一致{% endif %}</b><em>差异 {{ item.percent }}% · 同日测量 {{ item.right_date }}</em>
+        {% else %}
+        <b>日期不同，暂不比较</b><em>右 {{ item.right_date|default('日期未确认', true) }} · 左 {{ item.left_date|default('日期未确认', true) }}</em>
+        {% endif %}</div>
     {% endfor %}
     </div>
 </div>

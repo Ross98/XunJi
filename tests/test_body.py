@@ -95,3 +95,36 @@ def test_measurement_page_only_claims_unchanged_with_a_baseline(
     assert ('较上次持平' in html) is expected_label
     if not expected_label:
         assert '无对比数据' in html
+
+
+@pytest.mark.parametrize('days_apart', [0, 1])
+def test_left_right_comparison_requires_same_measurement_day(
+    days_apart, monkeypatch, isolated_health_db, tmp_cache, tmp_path
+):
+    from datetime import date, timedelta
+    today = date.today().isoformat()
+    left_day = (date.today() - timedelta(days=days_apart)).isoformat()
+
+    class Service:
+        async def get_body(self, *args, **kwargs):
+            return {'records': [
+                {'datestr': today, 'type': 'arm_right', 'value': 30},
+                {'datestr': left_day, 'type': 'arm_left', 'value': 29},
+            ]}
+
+    monkeypatch.setattr(body, 'get_data_service', Service)
+    monkeypatch.setattr(body, 'get_cache', lambda: tmp_cache)
+    monkeypatch.setattr(body, 'BODY_CONFIG_PATH', str(tmp_path / 'body.json'))
+    response = asyncio.run(body.body_page(
+        Request({'type': 'http', 'path': '/body', 'headers': []}), range='90'))
+    html = response.body.decode()
+    card = html.split('id="bodyAsymmetryCard"', 1)[1].split('<script>', 1)[0]
+    assert today in card and left_day in card
+    if days_apart:
+        assert '日期不同，暂不比较' in card
+        assert '多 1.0 cm' not in card
+        assert '差异 3.4%' not in card
+    else:
+        assert '同日测量' in card
+        assert '多 1.0 cm' in card
+        assert '差异 3.4%' in card
