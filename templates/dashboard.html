@@ -92,7 +92,7 @@
     <a href="/health" class="card metric-spark-card sleep-summary-card">
         <div class="metric-spark-heading"><strong>{{ health.sleep_total_hours if health.sleep_total_hours is not none else '--' }}</strong><span>小时</span></div>
         <div class="stat-label">最近睡眠{% if health.sleep_last %} · {{ health.sleep_last.date }}{% endif %}</div>
-        {% if health.sleep_deep_pct is not none %}<div class="sleep-detail">深睡 {{ health.sleep_deep_pct }}%</div>{% else %}<div class="sleep-detail">暂无睡眠阶段汇总</div>{% endif %}
+        {% if health.sleep_last and health.sleep_last.Conflict|default(0) %}<div class="sleep-detail">来源冲突，完整时长未确认</div>{% elif health.sleep_deep_pct is not none %}<div class="sleep-detail">深睡 {{ health.sleep_deep_pct }}% · 按连续阶段结束日汇总</div>{% else %}<div class="sleep-detail">暂无可确认的睡眠时长</div>{% endif %}
     </a>
 </div>
 </div>

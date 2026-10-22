@@ -168,7 +168,7 @@ def test_sleep_only_store_is_imported_and_shown(monkeypatch, isolated_health_db,
     html = response.body.decode()
     assert ah.get_import_count()['total_sleep'] == 1
     assert '尚未导入 Apple Health' not in html
-    assert '最近一晚睡眠' in html
+    assert '最近睡眠汇总' in html
     assert '6.0小时' in html
 
 

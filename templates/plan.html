@@ -32,6 +32,7 @@
             <span>步数 <b>{{ recovery.steps|default('--') }}</b></span>
         </div>
         <p class="card-description">睡眠包含今日记录及相连的跨夜阶段；其余指标仅用今日记录。缺测不评分。</p>
+        {% if recovery.sleep_conflict %}<p class="card-description">睡眠来源冲突，未用于恢复评分。</p>{% endif %}
     </div>
 
     <div class="card recommendation-card">

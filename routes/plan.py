@@ -1,5 +1,5 @@
 """训练规划路由"""
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 import json
 import logging
 from pathlib import Path
@@ -12,6 +12,7 @@ from data_service import extract_trains, get_cached_training
 from planner import DEFAULT_PLAN_PREFERENCES, generate_plan, normalize_plan_preferences
 from movements_cn import apply_movement_cn_to_trains
 from local_settings import write_json_atomic
+from sleep_stats import confirmed_sleep_minutes
 
 router = APIRouter(tags=["plan"])
 logger = logging.getLogger(__name__)
@@ -31,29 +32,6 @@ def _load_plan_preferences() -> dict:
 
 def _save_plan_preferences(preferences: dict):
     write_json_atomic(PLAN_CONFIG_PATH, preferences)
-
-
-def _current_sleep_stages(records: list[dict], today: str) -> dict:
-    """Use today's sleep and connected pre-midnight stages, excluding older nights."""
-    intervals = []
-    for record in records:
-        try:
-            start = datetime.fromisoformat(record["start_date"][:19])
-            end = datetime.fromisoformat(record["end_date"][:19])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if end > start and end.date().isoformat() <= today:
-            intervals.append((end, start, record["type"]))
-
-    stages = {}
-    boundary = None
-    for end, start, kind in sorted(intervals, reverse=True):
-        if end.date().isoformat() != today and (boundary is None or end < boundary):
-            continue
-        boundary = min(boundary, start) if boundary else start
-        stage = kind.removeprefix("HKCategoryValueSleepAnalysis")
-        stages[stage] = stages.get(stage, 0) + (end - start).total_seconds() / 60
-    return stages
 
 
 @router.get("/plan", response_class=HTMLResponse)
@@ -83,16 +61,16 @@ async def plan_page(request: Request):
 
             # Sleep
             # Count sleep ending today, including stages spanning midnight.
-            yesterday = (date.today() - timedelta(days=1)).isoformat()
-            sl = _current_sleep_stages(ah.query_sleep(yesterday, today), today)
-            if sl:
-                st = sl.get("AsleepUnspecified", 0) + sl.get("AsleepCore", 0) + sl.get("AsleepREM", 0) + sl.get("AsleepDeep", 0)
-                if st > 0:
-                    recovery["sleep_hours"] = round(st / 60, 1)
-                    recovery["sleep_deep_pct"] = round(sl.get("AsleepDeep", 0) / st * 100, 0)
-                    recovery["sleep_rem_pct"] = round(sl.get("AsleepREM", 0) / st * 100, 0)
-                    recovery["sleep_core_pct"] = round(sl.get("AsleepCore", 0) / st * 100, 0)
-                    recovery["sleep_awake"] = sl.get("Awake", 0)
+            sleep_rows = ah.get_sleep_summary(today, today)
+            sl = sleep_rows[0] if sleep_rows else {}
+            st = confirmed_sleep_minutes(sl)
+            recovery["sleep_conflict"] = bool(sl.get("Conflict"))
+            if st is not None:
+                recovery["sleep_hours"] = round(st / 60, 1)
+                recovery["sleep_deep_pct"] = round(sl.get("AsleepDeep", 0) / st * 100, 0)
+                recovery["sleep_rem_pct"] = round(sl.get("AsleepREM", 0) / st * 100, 0)
+                recovery["sleep_core_pct"] = round(sl.get("AsleepCore", 0) / st * 100, 0)
+                recovery["sleep_awake"] = sl.get("Awake", 0)
 
             # HRV
             hrv = ah.query_records("HKQuantityTypeIdentifierHeartRateVariabilitySDNN", start, today)

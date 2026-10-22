@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.concurrency import run_in_threadpool
 from app_state import get_cache, get_jinja_env
 from data_service import DataFreshnessService
+from sleep_stats import confirmed_sleep_minutes
 import apple_health as ah
 import hozz_sync as hs
 
@@ -214,15 +215,12 @@ async def health_page(request: Request):
     total_body_dates = len(set(r["start_date"][:10] for r in body_mass) | set(r["start_date"][:10] for r in body_fat))
 
     sleep_summary = ah.get_sleep_summary(start, end)
-    sleep_count = len(ah.query_sleep(start, end)) if imported else 0
+    sleep_count = sum(row["record_count"] for row in sleep_summary)
     latest_sleep = sleep_summary[0] if sleep_summary else None
     sleep_nights = len(sleep_summary)
     sleep_metrics = None
-    if latest_sleep:
-        asleep_total = sum(
-            latest_sleep.get(key, 0) or 0
-            for key in ("AsleepUnspecified", "AsleepCore", "AsleepREM", "AsleepDeep")
-        )
+    asleep_total = confirmed_sleep_minutes(latest_sleep)
+    if asleep_total is not None:
         sleep_metrics = {
             "date": latest_sleep.get("date"),
             "hours": round(asleep_total / 60, 1) if asleep_total else 0,

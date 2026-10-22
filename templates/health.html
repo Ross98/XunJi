@@ -61,14 +61,17 @@
 
     <div class="grid-2">
         <div class="card">
-            <div class="card-title">最近一晚睡眠</div>
+            <div class="card-title">最近睡眠汇总</div>
             {% if sleep_metrics %}
             <div class="sleep-overview"><strong>{{ sleep_metrics.hours }}小时</strong><span>{{ sleep_metrics.date }} · 清醒 {{ sleep_metrics.awake_minutes }}分钟</span></div>
             <div class="sleep-stage-row"><span>核心 {{ sleep_metrics.core_pct }}%</span><i style="width:{{ sleep_metrics.core_pct }}%;background:#6574d8"></i></div>
             <div class="sleep-stage-row"><span>深睡 {{ sleep_metrics.deep_pct }}%</span><i style="width:{{ sleep_metrics.deep_pct }}%;background:#3949ab"></i></div>
             <div class="sleep-stage-row"><span>REM {{ sleep_metrics.rem_pct }}%</span><i style="width:{{ sleep_metrics.rem_pct }}%;background:#9c6ade"></i></div>
-            <p class="card-description">近90天共汇总 {{ sleep_nights }} 晚；原始阶段记录 {{ sleep_count }} 条。</p>
-            {% else %}<div class="inline-state">暂无睡眠阶段数据</div>{% endif %}
+            {% else %}<div class="inline-state">{{ '睡眠时长尚未确认' if latest_sleep else '暂无睡眠阶段数据' }}</div>{% endif %}
+            <p class="card-description">连续阶段按结束日归档，重叠时段只计一次；近90天有记录 {{ sleep_nights }} 天，有效原始阶段 {{ sleep_count }} 条。</p>
+            {% if latest_sleep and latest_sleep.Conflict|default(0) %}<p class="card-description">清醒与睡眠来源冲突 {{ latest_sleep.Conflict }} 分钟，本次完整时长未确认。</p>{% endif %}
+            {% if latest_sleep and latest_sleep.StageConflict|default(0) %}<p class="card-description">分期冲突 {{ latest_sleep.StageConflict }} 分钟，仅计入未分期睡眠。</p>{% endif %}
+            {% if latest_sleep and latest_sleep.AsleepUnspecified|default(0) %}<p class="card-description">未细分阶段 {{ latest_sleep.AsleepUnspecified }} 分钟。</p>{% endif %}
         </div>
         <div class="card">
             <div class="card-title">近期 Apple Watch 训练</div>
@@ -88,7 +91,7 @@
     <div class="health-db-summary">
         <div><strong>{{ "{:,}".format(stats.total_records) }}</strong><span>健康记录</span></div>
         <div><strong>{{ "{:,}".format(stats.total_workouts) }}</strong><span>训练</span></div>
-        <div><strong>{{ sleep_nights }}</strong><span>睡眠晚数（90天）</span></div>
+        <div><strong>{{ sleep_nights }}</strong><span>睡眠记录天数（90天）</span></div>
         <div><strong>{{ database_size_mb }} MB</strong><span>数据库大小</span></div>
     </div>
     <div class="card data-coverage-card"><span>覆盖范围</span><strong>{{ coverage.start_date or '--' }} → {{ coverage.end_date or '--' }}</strong><span>导出文件：{% if export_exists %}{{ export_size_mb }} MB{% else %}未找到{% endif %}</span></div>

@@ -18,6 +18,7 @@ from data_service import (
     extract_body_records as _extract_body_records,
 )
 from analysis import summarize_training, summarize_body, body_latest
+from sleep_stats import confirmed_sleep_minutes
 
 router = APIRouter(tags=["dashboard"])
 logger = logging.getLogger(__name__)
@@ -295,15 +296,10 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
         # Sleep summary (last night)
         sleep_data = ah.get_sleep_summary(start, end)
         sleep_last = sleep_data[0] if sleep_data else None
-        sleep_total_min = 0
+        sleep_total_min = confirmed_sleep_minutes(sleep_last)
         sleep_deep_pct = None
-        if sleep_last:
-            sleep_total_min = sum(
-                sleep_last.get(key, 0) or 0
-                for key in ("AsleepUnspecified", "AsleepCore", "AsleepREM", "AsleepDeep")
-            )
-            if sleep_total_min:
-                sleep_deep_pct = round((sleep_last.get("AsleepDeep", 0) or 0) / sleep_total_min * 100)
+        if sleep_total_min is not None:
+            sleep_deep_pct = round((sleep_last.get("AsleepDeep", 0) or 0) / sleep_total_min * 100)
 
         latest_hrv = hrv_raw[-1]["value"] if hrv_raw else None
         latest_rhr = rhr_raw[-1]["value"] if rhr_raw else None

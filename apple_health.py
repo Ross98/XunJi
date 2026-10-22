@@ -467,43 +467,33 @@ def query_sleep(start: str = None,
 
 
 def get_sleep_summary(start: str = None, end: str = None) -> list[dict]:
-    """按天汇总睡眠各阶段时长 (分钟)。Python 计算 (SQLite julianday 不支持 +0800 时区)。"""
-    from datetime import datetime
+    """Summarize connected sleep intervals by completion date, without double counting."""
+    from sleep_stats import parse_intervals, summarize_intervals
 
-    sql = "SELECT * FROM health_sleep WHERE 1=1"
-    params = []
-    if start:
-        sql += " AND substr(start_date,1,10) >= ?"
-        params.append(start[:10])
-    if end:
-        sql += " AND substr(end_date,1,10) <= ?"
-        params.append(end[:10])
-    sql += " ORDER BY start_date"
-
-    def _parse_dt(s: str) -> datetime:
-        # "2026-07-10 07:19:15 +0800" -> datetime
-        return datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
-
+    lower = start[:10] + " 00:00:00" if start else None
+    upper = end[:10] + " 23:59:59" if end else None
+    # Expand until all intervals touching the requested window are available.
+    # This includes pre-midnight stages and avoids truncating a component at
+    # either query boundary. Unchanged raw records remain the source of truth.
     with _conn() as conn:
-        rows = conn.execute(sql, params).fetchall()
-
-    by_date = {}
-    for r in rows:
-        try:
-            start_dt = _parse_dt(r["start_date"])
-            end_dt = _parse_dt(r["end_date"])
-            minutes = (end_dt - start_dt).total_seconds() / 60
-            if minutes < 0:
-                continue
-        except (ValueError, TypeError):
-            continue
-
-        # 归类到开始日期
-        d = r["start_date"][:10]
-        if d not in by_date:
-            by_date[d] = {"date": d}
-        t = r["type"].replace("HKCategoryValueSleepAnalysis", "")
-        by_date[d][t] = by_date[d].get(t, 0) + int(minutes + 0.5)
-
-    result = sorted(by_date.values(), key=lambda x: x["date"], reverse=True)
-    return result
+        conn.execute("BEGIN")
+        while True:
+            sql, params = "SELECT type, start_date, end_date FROM health_sleep WHERE 1=1", []
+            if lower:
+                sql += " AND substr(end_date,1,19) >= ?"
+                params.append(lower)
+            if upper:
+                sql += " AND substr(start_date,1,19) <= ?"
+                params.append(upper)
+            intervals = parse_intervals(conn.execute(sql, params).fetchall())
+            if not intervals:
+                return []
+            first = min(row[0] for row in intervals).isoformat(sep=" ")
+            last = max(row[1] for row in intervals).isoformat(sep=" ")
+            new_lower = min(lower, first) if lower else None
+            new_upper = max(upper, last) if upper else None
+            if (lower, upper) == (new_lower, new_upper):
+                break
+            lower, upper = new_lower, new_upper
+    return [row for row in summarize_intervals(intervals)
+            if (not start or row["date"] >= start[:10]) and (not end or row["date"] <= end[:10])]
