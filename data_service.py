@@ -1,4 +1,6 @@
 from datetime import date, datetime, timezone
+import asyncio
+import hashlib
 import json
 import math
 from time import monotonic
@@ -156,6 +158,55 @@ class DataService:
     def _is_valid_body_response(data: object) -> bool:
         return _response_records(data, "records", decode_json=True) is not None
 
+    @staticmethod
+    def body_history_complete(data: object, limit: int = 500) -> bool:
+        records = _response_records(data, "records", decode_json=True)
+        return records is not None and (len(records) < limit or data.get("_history_complete") is True)
+
+    async def _fetch_body_history(self, start_date, end_date, types, limit):
+        first = await self._client.query_body(start_date, end_date, types, limit)
+        records = _response_records(first, "records", decode_json=True)
+        if records is None or len(records) < limit:
+            return first
+        records = list(records)
+
+        def fingerprint(rows):
+            return hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).digest()
+
+        signatures = {fingerprint(records)}
+        identities = {(row["datestr"], row["type"]) for row in records
+                      if isinstance(row.get("datestr"), str) and isinstance(row.get("type"), str)}
+        while True:
+            # The body endpoint permits one query per key every 15 seconds.
+            await asyncio.sleep(15)
+            page = await self._client.query_body(start_date, end_date, types, limit, offset=len(records))
+            batch = _response_records(page, "records", decode_json=True)
+            if batch is None:
+                raise ValueError("Body pagination returned an invalid response")
+            signature = fingerprint(batch)
+            batch_ids = {(row["datestr"], row["type"]) for row in batch
+                         if isinstance(row.get("datestr"), str) and isinstance(row.get("type"), str)}
+            if batch and (signature in signatures or identities.intersection(batch_ids)):
+                raise ValueError("Body pagination repeated or overlapped records")
+            signatures.add(signature)
+            identities.update(batch_ids)
+            records.extend(batch)
+            if len(batch) < limit:
+                break
+        result = dict(first)
+        container = result
+        if isinstance(first.get("res"), dict) and _response_records(first["res"], "records", decode_json=True) is not None:
+            container = result["res"] = dict(first["res"])
+        container["records"] = records
+        if "by_type" in container:
+            by_type = {}
+            for record in records:
+                if isinstance(record.get("type"), str):
+                    by_type.setdefault(record["type"], []).append(record)
+            container["by_type"] = by_type
+        result["_history_complete"] = True
+        return result
+
     async def get_body(
         self,
         start_date: str,
@@ -164,19 +215,27 @@ class DataService:
         limit: int = 500,
         force_refresh: bool = False,
     ) -> dict:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("Body page limit must be a positive integer")
         type_str = ",".join(types) if types else "all"
         cache_key = f"body:{type_str}:{start_date}:{end_date}:{limit}"
-        if not force_refresh:
-            cached = self._cache.get(cache_key)
-            if self._is_valid_body_response(cached):
+        cached = self._cache.get(cache_key)
+        complete_cache = self.body_history_complete(cached, limit)
+        if complete_cache and not force_refresh:
+            return cached
+        if cached is not None and not self._is_valid_body_response(cached):
+            self._cache.delete(cache_key)
+        try:
+            data = await self._fetch_body_history(start_date, end_date, types, limit)
+        except Exception:
+            if complete_cache:
                 return cached
-            if cached is not None:
-                self._cache.delete(cache_key)
-        data = await self._client.query_body(start_date, end_date, types, limit)
+            raise
         if self._is_valid_body_response(data):
             self._cache.set(cache_key, data)
             self._mark_xunji_refresh()
-        return data
+            return data
+        return cached if complete_cache else data
 
     # ── Diet Search / Upsert ──
 

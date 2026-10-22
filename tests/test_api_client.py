@@ -141,3 +141,26 @@ def test_rate_limit_wait_can_be_cancelled_without_another_request(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(query_with_mock_transport(respond))
     assert len(calls) == 1
+
+
+def test_body_query_transmits_pagination_offset():
+    import json
+    payloads = []
+
+    def respond(request):
+        payloads.append(json.loads(request.content))
+        return httpx.Response(200, json={'records': []})
+
+    async def run():
+        client = XunjiAPIClient(XunjiConfig('test-training', 'test-body'))
+        await client._client.aclose()
+        client._client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        try:
+            await client.query_body('2020-01-01', '2026-10-23', ['weight'], 500, offset=1000)
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert payloads[0]['offset'] == 1000
+    assert payloads[0]['limit'] == 500
+    assert payloads[0]['types'] == ['weight']

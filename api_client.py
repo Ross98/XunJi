@@ -166,6 +166,7 @@ class XunjiAPIClient:
         end_date: str,
         types: Optional[list[str]] = None,
         limit: int = 500,
+        offset: int = 0,
     ) -> dict:
         url = build_body_url(self._config.body_base_url, "query")
         headers = make_headers(self._config.body_api_key)
@@ -175,7 +176,7 @@ class XunjiAPIClient:
             "include_latest": True,
             "include_records": True,
             "limit": limit,
-            "offset": 0,
+            "offset": offset,
         }
         if types:
             payload["types"] = types
