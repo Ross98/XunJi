@@ -164,15 +164,9 @@ async def body_page(
     latest_measurement_changes = {}
     for field in body_fields:
         recs = [r for r in records_merged if r.get("type") == field]
-        if recs and len(recs) > 1:
+        if recs:
             key = f"{field}:{recs[0].get('datestr','')}"
-            val = changes.get(key)
-            if val is not None:
-                latest_measurement_changes[field] = val
-            else:
-                latest_measurement_changes[field] = 0.0
-        elif recs:
-            latest_measurement_changes[field] = 0.0
+            latest_measurement_changes[field] = changes.get(key)
     measurement_dates = [
         latest[field]["date"] for field in body_fields
         if latest.get(field, {}).get("date")

@@ -535,7 +535,7 @@ def body_stats(records: list[dict]) -> dict[str, dict[str, float]]:
 
 
 def body_changes(records: list[dict]) -> dict[str, float]:
-    """Delta per record vs previous same-type record. Key: 'type:date'."""
+    """Observed deltas only; the first same-type record has no baseline."""
     changes: dict[str, float] = {}
     prev: dict[str, float] = {}
     # records are newest-first; reverse for chronological
@@ -550,8 +550,6 @@ def body_changes(records: list[dict]) -> dict[str, float]:
             key = f"{t}:{rec.get('datestr', '')}"
             if t in prev:
                 changes[key] = round(val - prev[t], 2)
-            else:
-                changes[key] = 0.0
             prev[t] = val
     return changes
 
