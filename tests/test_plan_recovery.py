@@ -127,3 +127,14 @@ def test_normal_rhr_is_real_evidence_even_without_other_metrics():
     readiness = generate_plan([], recovery={"rhr": 60, "rhr_avg": 60})["readiness"]
     assert readiness["score"] == 100
     assert readiness["reasons"] == ["静息心率未高于基线"]
+
+
+def test_overlapping_steps_are_not_treated_as_confirmed_total(render_plan_context, isolated_health_db):
+    with isolated_health_db._conn() as conn:
+        for source, start, end in [('watch','08:00:00','09:00:00'), ('phone','08:30:00','09:30:00')]:
+            conn.execute('INSERT INTO health_records (type,start_date,end_date,value,source_name) VALUES (?,?,?,?,?)',
+                         ('HKQuantityTypeIdentifierStepCount', '2026-10-22 '+start+' +0800',
+                          '2026-10-22 '+end+' +0800', 100, source))
+    recovery = render_plan_context()['recovery']
+    assert recovery['steps'] is None
+    assert recovery['steps_overlap'] is True

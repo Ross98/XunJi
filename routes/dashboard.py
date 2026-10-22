@@ -19,6 +19,7 @@ from data_service import (
 )
 from analysis import summarize_training, summarize_body, body_latest
 from sleep_stats import confirmed_sleep_minutes
+from activity_stats import daily_activity_totals, confirmed_activity_average
 
 router = APIRouter(tags=["dashboard"])
 logger = logging.getLogger(__name__)
@@ -154,21 +155,21 @@ def _get_cached_training_dates(cache, end_date: str, days: int = 14) -> set[str]
     return training_dates
 
 
-def _get_daily_health_total(ah, metric_type: str, preferred_date: str) -> tuple[float, str | None]:
-    def total_for(metric_date: str) -> float:
+def _get_daily_health_total(ah, metric_type: str, preferred_date: str) -> dict:
+    def total_for(metric_date: str):
         records = ah.query_records(
             metric_type, metric_date, metric_date + " 23:59:59"
         )
-        return sum(float(record["value"]) for record in records if record.get("value"))
+        return daily_activity_totals(records).get(metric_date)
 
     preferred_total = total_for(preferred_date)
-    if preferred_total > 0:
-        return preferred_total, preferred_date
+    if preferred_total is not None:
+        return {**preferred_total, 'date': preferred_date}
 
     latest = ah.get_latest_dates(metric_type).get(metric_type)
     if latest and latest != preferred_date:
-        return total_for(latest), latest
-    return 0, latest or preferred_date
+        return {**(total_for(latest) or {'value': None, 'overlap': False}), 'date': latest}
+    return {'value': None, 'overlap': False, 'date': None}
 
 
 @router.get("/api/ah-check")
@@ -234,6 +235,7 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
     latest_body = body_latest(records)
 
     yesterday_active_calories = None
+    yesterday_active_overlap = False
 
     # ── Apple Health 数据 ──
     health_data = None
@@ -258,40 +260,25 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
         vo2_trend = _build_trend(vo2_raw)
 
         # Prefer yesterday, then report the actual fallback date when data is stale.
-        today_steps, step_date = _get_daily_health_total(
+        step_day = _get_daily_health_total(
             ah, "HKQuantityTypeIdentifierStepCount", yesterday
         )
-        today_exercise, exercise_date = _get_daily_health_total(
+        exercise_day = _get_daily_health_total(
             ah, "HKQuantityTypeIdentifierAppleExerciseTime", yesterday
         )
-        today_stand, stand_date = _get_daily_health_total(
+        stand_day = _get_daily_health_total(
             ah, "HKQuantityTypeIdentifierAppleStandTime", yesterday
         )
 
         # 90d averages for context
         step_90d = ah.query_records("HKQuantityTypeIdentifierStepCount", start, end)
-        step_by_day = {}
-        for r in step_90d:
-            d = r["start_date"][:10]
-            v = r.get("value", 0)
-            if v: step_by_day[d] = step_by_day.get(d, 0) + v
-        step_avg = round(sum(step_by_day.values()) / max(len(step_by_day), 1))
+        step_avg, step_avg_days = confirmed_activity_average(step_90d, start[:10], yesterday)
 
         ex_90d = ah.query_records("HKQuantityTypeIdentifierAppleExerciseTime", start, end)
-        ex_by_day = {}
-        for r in ex_90d:
-            d = r["start_date"][:10]
-            v = r.get("value", 0)
-            if v: ex_by_day[d] = ex_by_day.get(d, 0) + v
-        ex_avg = round(sum(ex_by_day.values()) / max(len(ex_by_day), 1))
+        ex_avg, ex_avg_days = confirmed_activity_average(ex_90d, start[:10], yesterday)
 
         stand_90d = ah.query_records("HKQuantityTypeIdentifierAppleStandTime", start, end)
-        stand_by_day = {}
-        for r in stand_90d:
-            d = r["start_date"][:10]
-            v = r.get("value", 0)
-            if v: stand_by_day[d] = stand_by_day.get(d, 0) + v
-        stand_avg = round(sum(stand_by_day.values()) / max(len(stand_by_day), 1)) if stand_by_day else 0
+        stand_avg, stand_avg_days = confirmed_activity_average(stand_90d, start[:10], yesterday)
 
         # Sleep summary (last night)
         sleep_data = ah.get_sleep_summary(start, end)
@@ -316,13 +303,19 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
             "hrv_date": hrv_raw[-1]["start_date"][:10] if hrv_raw else None,
             "rhr_date": rhr_raw[-1]["start_date"][:10] if rhr_raw else None,
             "vo2_date": vo2_raw[-1]["start_date"][:10] if vo2_raw else None,
-            "today_steps": int(today_steps),
-            "today_exercise": int(today_exercise),
-            "step_date": step_date,
-            "exercise_date": exercise_date,
-            "stand_date": stand_date,
+            "today_steps": round(step_day["value"]) if step_day["value"] is not None else None,
+            "steps_overlap": step_day["overlap"],
+            "exercise_overlap": exercise_day["overlap"],
+            "stand_overlap": stand_day["overlap"],
+            "today_exercise": round(exercise_day["value"]) if exercise_day["value"] is not None else None,
+            "step_date": step_day["date"],
+            "exercise_date": exercise_day["date"],
+            "stand_date": stand_day["date"],
             "yesterday": yesterday,
-            "today_stand": round(today_stand),
+            "today_stand": round(stand_day["value"]) if stand_day["value"] is not None else None,
+            "step_avg_days": step_avg_days,
+            "ex_avg_days": ex_avg_days,
+            "stand_avg_days": stand_avg_days,
             "step_avg": step_avg,
             "ex_avg": ex_avg,
             "stand_avg": stand_avg,
@@ -393,9 +386,10 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
                 yesterday,
                 yesterday + " 23:59:59",
             )
-            cal_sum = round(sum(r["value"] for r in cal_recs if r.get("value")))
-            if cal_sum > 0:
-                yesterday_active_calories = cal_sum
+            energy = daily_activity_totals(cal_recs).get(yesterday, {})
+            yesterday_active_overlap = energy.get("overlap", False)
+            if energy.get("value") is not None:
+                yesterday_active_calories = round(energy["value"])
         except Exception:
             logger.exception("Apple Health workout summary failed")
 
@@ -428,6 +422,7 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
         "weight_trend": body_summary["weight_trend"],
         "latest_weight": latest_body.get("weight", {}).get("value", "--"),
         "yesterday_active_calories": yesterday_active_calories,
+        "yesterday_active_overlap": yesterday_active_overlap,
         "health": health_data,
         "recovery": recovery,
         "total_sets": total_sets,

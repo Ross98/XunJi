@@ -95,7 +95,10 @@ async def plan_page(request: Request):
             today_str = date.today().isoformat()
             steps = ah.query_records("HKQuantityTypeIdentifierStepCount", today_str, today_str + " 23:59:59")
             if steps:
-                recovery["steps"] = round(sum(s["value"] for s in steps if s.get("value")))
+                from activity_stats import daily_activity_totals
+                activity = daily_activity_totals(steps).get(today_str, {})
+                recovery["steps"] = round(activity["value"]) if activity.get("value") is not None else None
+                recovery["steps_overlap"] = activity.get("overlap", False)
     except Exception:
         logger.exception("Apple Health recovery context unavailable")
 

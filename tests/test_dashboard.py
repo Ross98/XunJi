@@ -134,7 +134,7 @@ def test_daily_health_total_reports_actual_fallback_date():
         def query_records(metric, start, end):
             if start == "2026-08-08":
                 return []
-            return [{"value": 40}, {"value": 60}]
+            return [{"value": 40, "start_date": start}, {"value": 60, "start_date": start}]
 
         @staticmethod
         def get_latest_dates(metric):
@@ -142,7 +142,7 @@ def test_daily_health_total_reports_actual_fallback_date():
 
     assert _get_daily_health_total(
         AppleHealth(), "steps", "2026-08-08"
-    ) == (100, "2026-08-07")
+    ) == {"value": 100, "date": "2026-08-07", "overlap": False}
 
 
 def test_dashboard_renders_without_retired_diet_service(monkeypatch):
@@ -226,3 +226,15 @@ def test_dashboard_loader_does_not_touch_data_services(monkeypatch):
     assert 'role="progressbar"' in html
     assert "/dashboard/content" in html
     assert "重新加载" in html
+
+
+def test_observed_zero_activity_does_not_fall_back_to_older_day():
+    class Health:
+        def query_records(self, metric, start, end):
+            return [{'start_date': start, 'value': 0}]
+
+        def get_latest_dates(self, metric):
+            raise AssertionError('observed zero must not request a fallback date')
+
+    assert _get_daily_health_total(Health(), 'steps', '2026-10-22') == {
+        'value': 0, 'date': '2026-10-22', 'overlap': False}

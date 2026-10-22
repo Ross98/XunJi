@@ -22,9 +22,9 @@
         {% endif %}
     </div></a>
     <a href="/training" class="card stat-card-link"><div class="stat">
-        <div class="stat-value">{{ "%.0f"|format(yesterday_active_calories) if yesterday_active_calories else "--" }}</div>
+        <div class="stat-value">{{ "%.0f"|format(yesterday_active_calories) if yesterday_active_calories is not none else "--" }}</div>
         <div class="stat-label">昨日活动能量 (kcal)</div>
-        {% if not yesterday_active_calories %}<div class="stat-caption">该日暂无活动能量记录</div>{% endif %}
+        {% if yesterday_active_overlap %}<div class="stat-caption">来源重叠，日总量未确认</div>{% elif yesterday_active_calories is none %}<div class="stat-caption">该日暂无可确认的活动能量</div>{% endif %}
     </div></a>
     <a href="/body" class="card stat-card-link"><div class="stat">
         <div class="stat-value">{{ latest_weight }}{% if latest_weight != '--' %}<span class="stat-unit">kg</span>{% endif %}</div>
@@ -40,34 +40,43 @@
 <div class="sortable-card" data-section="activity">
 <div class="grid-3">
     <a href="/health" class="card stat-card-link"><div class="stat">
-        {% set step_pct = (health.today_steps / health.step_avg * 100)|int if health.step_avg else 0 %}{% set step_delta = step_pct - 100 %}{% set fm = freshness.metrics.steps %}
-        <div class="stat-value">{{ health.today_steps }}</div>
+        {% set step_pct = (health.today_steps / health.step_avg * 100)|int if health.step_avg and health.today_steps is not none else none %}{% set step_delta = step_pct - 100 if step_pct is not none else none %}{% set fm = freshness.metrics.steps %}
+        <div class="stat-value">{{ health.today_steps if health.today_steps is not none else '--' }}</div>
         <div class="stat-label">{% if health.step_date == health.yesterday %}昨日步数{% elif health.step_date %}{{ health.step_date[5:] }} 步数{% else %}步数{% endif %}</div>
+        {% if step_pct is not none %}
         <div class="progress-mini">
             <div style="width:{{ [step_pct, 100]|min }}%;background:#4caf50;"></div>
         </div>
         <div class="stat-context">较90天日均 {% if step_delta > 0 %}+{% endif %}{{ step_delta }}%</div>
-        <div class="stat-caption">日均 {{ health.step_avg }}步 · 数据日 {{ health.step_date }}</div>
+        {% elif health.steps_overlap %}<div class="stat-context">来源重叠，日总量未确认</div>
+        {% else %}<div class="stat-context">总量或日均对照未确认</div>{% endif %}
+        <div class="stat-caption">日均 {{ health.step_avg if health.step_avg is not none else '--' }}步 · {{ health.step_avg_days }}个可确认记录日 · <span style="white-space:nowrap;">数据日 {{ health.step_date or '暂无日期' }}</span></div>
     </div></a>
     <a href="/health" class="card stat-card-link"><div class="stat">
-        {% set ex_pct = (health.today_exercise / health.ex_avg * 100)|int if health.ex_avg else 0 %}{% set ex_delta = ex_pct - 100 %}{% set fm = freshness.metrics.exercise_minutes %}
-        <div class="stat-value">{{ health.today_exercise }}<span class="stat-unit">分钟</span></div>
+        {% set ex_pct = (health.today_exercise / health.ex_avg * 100)|int if health.ex_avg and health.today_exercise is not none else none %}{% set ex_delta = ex_pct - 100 if ex_pct is not none else none %}{% set fm = freshness.metrics.exercise_minutes %}
+        <div class="stat-value">{{ health.today_exercise if health.today_exercise is not none else '--' }}<span class="stat-unit">分钟</span></div>
         <div class="stat-label">{% if health.exercise_date == health.yesterday %}昨日活动{% elif health.exercise_date %}{{ health.exercise_date[5:] }} 活动{% else %}活动{% endif %}</div>
+        {% if ex_pct is not none %}
         <div class="progress-mini">
             <div style="width:{{ [ex_pct, 100]|min }}%;background:#2196f3;"></div>
         </div>
         <div class="stat-context">较90天日均 {% if ex_delta > 0 %}+{% endif %}{{ ex_delta }}%</div>
-        <div class="stat-caption">日均 {{ health.ex_avg }}分钟 · 数据日 {{ health.exercise_date }}</div>
+        {% elif health.exercise_overlap %}<div class="stat-context">来源重叠，日总量未确认</div>
+        {% else %}<div class="stat-context">总量或日均对照未确认</div>{% endif %}
+        <div class="stat-caption">日均 {{ health.ex_avg if health.ex_avg is not none else '--' }}分钟 · {{ health.ex_avg_days }}个可确认记录日 · <span style="white-space:nowrap;">数据日 {{ health.exercise_date or '暂无日期' }}</span></div>
     </div></a>
     <a href="/health" class="card stat-card-link"><div class="stat">
-        {% set stand_pct = (health.today_stand / health.stand_avg * 100)|int if health.stand_avg else 0 %}{% set stand_delta = stand_pct - 100 %}{% set fm = freshness.metrics.stand_hours %}
-        <div class="stat-value">{{ health.today_stand }}<span class="stat-unit">分钟</span></div>
+        {% set stand_pct = (health.today_stand / health.stand_avg * 100)|int if health.stand_avg and health.today_stand is not none else none %}{% set stand_delta = stand_pct - 100 if stand_pct is not none else none %}{% set fm = freshness.metrics.stand_hours %}
+        <div class="stat-value">{{ health.today_stand if health.today_stand is not none else '--' }}<span class="stat-unit">分钟</span></div>
         <div class="stat-label">{% if health.stand_date == health.yesterday %}昨日站立{% elif health.stand_date %}{{ health.stand_date[5:] }} 站立{% else %}站立{% endif %}</div>
+        {% if stand_pct is not none %}
         <div class="progress-mini">
             <div style="width:{{ [stand_pct, 100]|min }}%;background:#ff9800;"></div>
         </div>
         <div class="stat-context">较90天日均 {% if stand_delta > 0 %}+{% endif %}{{ stand_delta }}%</div>
-        <div class="stat-caption">日均 {{ health.stand_avg }}分钟 · 数据日 {{ health.stand_date }}</div>
+        {% elif health.stand_overlap %}<div class="stat-context">来源重叠，日总量未确认</div>
+        {% else %}<div class="stat-context">总量或日均对照未确认</div>{% endif %}
+        <div class="stat-caption">日均 {{ health.stand_avg if health.stand_avg is not none else '--' }}分钟 · {{ health.stand_avg_days }}个可确认记录日 · <span style="white-space:nowrap;">数据日 {{ health.stand_date or '暂无日期' }}</span></div>
     </div></a>
 </div>
 </div>
