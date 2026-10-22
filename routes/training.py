@@ -455,7 +455,7 @@ async def training_page(request: Request):
     ))
 
 
-@router.get("/training/track/{movement_name}")
+@router.get("/training/track/{movement_name:path}")
 async def training_track(movement_name: str):
     """Returns movement history JSON for Chart.js."""
     from analysis import movement_history

@@ -248,3 +248,24 @@ def test_cardio_only_today_renders_in_full_training_page(monkeypatch, tmp_cache)
     assert '有氧分钟' in html
     assert 'stat-value">20<' in html
     assert 'stat-value">100<' in html
+
+
+def test_movement_tracker_accepts_encoded_slashes(monkeypatch, tmp_cache):
+    import httpx
+    from urllib.parse import quote
+    from app import app
+    from routes import training
+    name = '卧推 / 哑铃'
+    day = '2026-10-21'
+    tmp_cache.set(f'training:{day}:True', {'trains': [{'datestr': day, 'movements': [
+        {'name': name, 'sets': [{'weight': 60, 'reps': 10}]},
+    ]}]})
+    monkeypatch.setattr(training, 'get_cache', lambda: tmp_cache)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            response = await client.get('/training/track/' + quote(name, safe=''))
+        assert response.status_code == 200
+        assert response.json()['dates'] == [day]
+        assert response.json()['total_volume'] == [600]
+    asyncio.run(run())
