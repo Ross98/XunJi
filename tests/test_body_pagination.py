@@ -32,7 +32,7 @@ def delays(monkeypatch):
     async def sleep(seconds):
         values.append(seconds)
 
-    monkeypatch.setattr(data_service, 'asyncio', type('Clock', (), {'sleep': staticmethod(sleep)}), raising=False)
+    monkeypatch.setattr(data_service, '_body_page_sleep', sleep)
     return values
 
 
@@ -115,7 +115,7 @@ def test_pagination_wait_can_be_cancelled_without_losing_cache(tmp_cache, monkey
     async def cancel(seconds):
         raise asyncio.CancelledError()
 
-    monkeypatch.setattr(data_service, 'asyncio', type('Clock', (), {'sleep': staticmethod(cancel)}))
+    monkeypatch.setattr(data_service, '_body_page_sleep', cancel)
     old = {'records': ROWS[:1]}
     tmp_cache.set(KEY, old)
     client = Client([{'records': ROWS[:2]}])

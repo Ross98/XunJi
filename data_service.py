@@ -1,5 +1,7 @@
 from datetime import date, datetime, timezone
 import asyncio
+from asyncio import sleep as _body_page_sleep
+from dataclasses import dataclass
 import hashlib
 import json
 import math
@@ -8,6 +10,12 @@ from typing import Optional
 
 from api_client import XunjiAPIClient
 from cache import Cache
+
+
+@dataclass
+class _BodyRequest:
+    task: asyncio.Task
+    waiters: int = 0
 
 
 def _response_records(data: object, key: str, *, decode_json: bool = False) -> Optional[list[dict]]:
@@ -98,6 +106,8 @@ class DataService:
         self._cache = cache
         self._client = api_client
         self._training_attempts = {}
+        self._body_requests: dict[str, _BodyRequest] = {}
+        self._closing = False
 
     # ── Training ──
 
@@ -178,7 +188,7 @@ class DataService:
                       if isinstance(row.get("datestr"), str) and isinstance(row.get("type"), str)}
         while True:
             # The body endpoint permits one query per key every 15 seconds.
-            await asyncio.sleep(15)
+            await _body_page_sleep(15)
             page = await self._client.query_body(start_date, end_date, types, limit, offset=len(records))
             batch = _response_records(page, "records", decode_json=True)
             if batch is None:
@@ -215,6 +225,8 @@ class DataService:
         limit: int = 500,
         force_refresh: bool = False,
     ) -> dict:
+        if self._closing:
+            raise RuntimeError("Data service is closed")
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise ValueError("Body page limit must be a positive integer")
         type_str = ",".join(types) if types else "all"
@@ -223,6 +235,24 @@ class DataService:
         complete_cache = self.body_history_complete(cached, limit)
         if complete_cache and not force_refresh:
             return cached
+        pending = self._body_requests.get(cache_key)
+        if pending is None:
+            pending = _BodyRequest(asyncio.create_task(self._load_body_history(
+                cache_key, start_date, end_date, types, limit, cached, complete_cache)))
+            self._body_requests[cache_key] = pending
+        pending.waiters += 1
+        try:
+            return await asyncio.shield(pending.task)
+        finally:
+            pending.waiters -= 1
+            if pending.waiters == 0:
+                if self._body_requests.get(cache_key) is pending:
+                    del self._body_requests[cache_key]
+                if not pending.task.done():
+                    pending.task.cancel()
+                    await asyncio.gather(pending.task, return_exceptions=True)
+
+    async def _load_body_history(self, cache_key, start_date, end_date, types, limit, cached, complete_cache):
         if cached is not None and not self._is_valid_body_response(cached):
             self._cache.delete(cache_key)
         try:
@@ -249,6 +279,12 @@ class DataService:
         return await self._client.upsert_custom_food(payload)
 
     async def close(self):
+        self._closing = True
+        tasks = [pending.task for pending in self._body_requests.values()]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._body_requests.clear()
         await self._client.close()
 
 
