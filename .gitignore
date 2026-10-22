@@ -4,6 +4,7 @@
 body_config.json
 plan_config.json
 .plan-*.tmp
+.settings-*.tmp
 *.pem
 *.key
 __pycache__/

@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 from app_state import get_cache, get_jinja_env, get_data_service
 from data_service import DataFreshnessService, extract_body_records
 from analysis import summarize_body, body_latest, body_stats, body_changes, calculate_bmi
+from local_settings import write_json_atomic
 
 router = APIRouter(tags=["body"])
 logger = logging.getLogger(__name__)
@@ -17,15 +18,27 @@ BODY_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bod
 
 
 def _load_body_config() -> dict:
+    config = {}
     if os.path.exists(BODY_CONFIG_PATH):
-        with open(BODY_CONFIG_PATH) as f:
-            return json.load(f)
-    return {"height_cm": 170}
+        try:
+            with open(BODY_CONFIG_PATH, encoding="utf-8") as f:
+                saved = json.load(f)
+            if isinstance(saved, dict):
+                config = saved
+        except (OSError, ValueError):
+            logger.exception("Unable to load body preferences")
+    try:
+        height = float(config.get("height_cm", 170))
+        if not 100 <= height <= 250:
+            raise ValueError("Height outside supported range")
+    except (TypeError, ValueError, OverflowError):
+        height = 170
+    config["height_cm"] = height
+    return config
 
 
 def _save_body_config(config: dict):
-    with open(BODY_CONFIG_PATH, "w") as f:
-        json.dump(config, f)
+    write_json_atomic(BODY_CONFIG_PATH, config)
 
 RANGE_MAP = {
     "30": 30,
@@ -259,7 +272,11 @@ async def update_body_settings(data: dict):
             config["height_cm"] = round(float(h), 1)
         else:
             return {"status": "error", "message": "身高需在100–250 cm之间"}
-    _save_body_config(config)
+    try:
+        _save_body_config(config)
+    except OSError:
+        logger.exception("Unable to save body preferences")
+        return {"status": "error", "message": "身高保存失败，请检查文件权限或磁盘空间后重试"}
     return {"status": "ok"}
 
 

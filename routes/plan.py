@@ -2,8 +2,6 @@
 from datetime import date, datetime, timedelta
 import json
 import logging
-import os
-import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -13,6 +11,7 @@ from analysis import summarize_training
 from data_service import extract_trains, get_cached_training
 from planner import DEFAULT_PLAN_PREFERENCES, generate_plan, normalize_plan_preferences
 from movements_cn import apply_movement_cn_to_trains
+from local_settings import write_json_atomic
 
 router = APIRouter(tags=["plan"])
 logger = logging.getLogger(__name__)
@@ -31,18 +30,7 @@ def _load_plan_preferences() -> dict:
 
 
 def _save_plan_preferences(preferences: dict):
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=PLAN_CONFIG_PATH.parent,
-            prefix=".plan-", suffix=".tmp", delete=False,
-        ) as target:
-            temporary = Path(target.name)
-            json.dump(preferences, target, ensure_ascii=False, indent=2)
-        os.replace(temporary, PLAN_CONFIG_PATH)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    write_json_atomic(PLAN_CONFIG_PATH, preferences)
 
 
 def _current_sleep_stages(records: list[dict], today: str) -> dict:
