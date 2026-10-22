@@ -180,7 +180,7 @@ def generate_plan(
             name = m.get("name", "")
             if not name:
                 continue
-            g = _classify_movement(name)
+            g = "cardio" if m.get("exetype") == "cardio" else _classify_movement(name)
             if g == "other":
                 continue
             groups[g]["exercise_count"] += 1
@@ -210,7 +210,8 @@ def generate_plan(
         else:
             g["days_since"] = 30
         target = GROUP_TARGETS[key]["sets_30d"]
-        coverage = min(g["sets"] / target, 1)
+        completed = g["exercise_count"] if key == "cardio" else g["sets"]
+        coverage = min(completed / target, 1)
         recency_pressure = min(g["days_since"] / 10, 1)
         g["target_sets"] = target
         g["coverage_pct"] = round(coverage * 100)
@@ -287,7 +288,11 @@ def generate_plan(
         "reason": (
             "恢复指标偏弱，优先休息或低强度活动"
             if readiness["action"] == "rest"
-            else f"{focus['name']}近30天完成{focus['sets']}组，距上次{focus['days_since']}天"
+            else (
+                f"{focus['name']}近30天完成{focus['exercise_count']}条记录，距上次{focus['days_since']}天"
+                if focus_key == "cardio"
+                else f"{focus['name']}近30天完成{focus['sets']}组，距上次{focus['days_since']}天"
+            )
         ),
     }
 

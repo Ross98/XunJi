@@ -132,3 +132,34 @@ def test_low_recovery_makes_today_a_rest_day():
     assert result["recommendation"]["action"] == "rest"
     assert result["week_plan"][0]["kind"] == "rest"
     assert sum(day["kind"] == "train" for day in result["week_plan"]) == 3
+
+
+def test_explicit_cardio_type_does_not_require_a_recognized_name():
+    result = generate_plan([{
+        "datestr": "2026-10-21",
+        "movements": [{"name": "Custom aerobic activity", "exetype": "cardio", "sets": [{}]}],
+    }], reference_date=date(2026, 10, 22))
+    cardio = next(group for group in result["groups"] if group["key"] == "cardio")
+    assert cardio["count"] == 1
+    assert cardio["exercise_count"] == 1
+    assert cardio["coverage_pct"] == 8
+
+
+def test_cardio_coverage_counts_records_instead_of_sets():
+    result = generate_plan([{
+        "datestr": "2026-10-21",
+        "movements": [{"name": "跑步", "exetype": "cardio", "sets": [{}] * 12}],
+    }], reference_date=date(2026, 10, 22))
+    cardio = next(group for group in result["groups"] if group["key"] == "cardio")
+    assert cardio["exercise_count"] == 1
+    assert cardio["coverage_pct"] == 8
+
+
+def test_explicit_cardio_rowing_is_not_counted_as_strength_pull():
+    result = generate_plan([{
+        "datestr": "2026-10-21",
+        "movements": [{"name": "划船", "exetype": "cardio", "sets": [{}]}],
+    }], reference_date=date(2026, 10, 22))
+    groups = {group["key"]: group for group in result["groups"]}
+    assert groups["cardio"]["count"] == 1
+    assert groups["pull"]["count"] == 0
