@@ -377,6 +377,7 @@ def get_import_count() -> dict:
         "sleep": [dict(r) for r in sleep_counts],
         "total_records": sum(r["cnt"] for r in records),
         "total_workouts": sum(r["cnt"] for r in workouts),
+        "total_sleep": sum(r["cnt"] for r in sleep_counts),
         "health_import_time": import_time["time"] if import_time else None,
     }
 
@@ -385,17 +386,20 @@ def get_data_coverage() -> dict:
     """Return the earliest/latest imported dates across records, workouts and sleep."""
     with _conn() as conn:
         row = conn.execute(
-            """SELECT MIN(day) AS start_date, MAX(day) AS end_date FROM (
-                   SELECT substr(start_date, 1, 10) AS day FROM health_records
+            """SELECT MIN(first_date) AS start_date, MAX(last_date) AS end_date FROM (
+                   SELECT (SELECT MIN(start_date) FROM health_records) AS first_date,
+                          (SELECT MAX(start_date) FROM health_records) AS last_date
                    UNION ALL
-                   SELECT substr(start_date, 1, 10) AS day FROM health_workouts
+                   SELECT (SELECT MIN(start_date) FROM health_workouts),
+                          (SELECT MAX(start_date) FROM health_workouts)
                    UNION ALL
-                   SELECT substr(start_date, 1, 10) AS day FROM health_sleep
+                   SELECT (SELECT MIN(start_date) FROM health_sleep),
+                          (SELECT MAX(start_date) FROM health_sleep)
                )"""
         ).fetchone()
     return {
-        "start_date": row["start_date"] if row else None,
-        "end_date": row["end_date"] if row else None,
+        "start_date": row["start_date"][:10] if row and row["start_date"] else None,
+        "end_date": row["end_date"][:10] if row and row["end_date"] else None,
     }
 
 def get_latest_dates(type_filter=None):

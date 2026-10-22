@@ -147,6 +147,10 @@ def test_freshness_context_has_required_keys():
         def get_latest_dates():
             return {}
 
+        @staticmethod
+        def get_data_coverage():
+            return {"start_date": None, "end_date": None}
+
     class RefreshCache:
         @staticmethod
         def get(key):
@@ -174,3 +178,35 @@ def test_corrupt_training_cache_is_replaced_from_upstream(tmp_cache):
     assert result == response
     assert client.calls == [('2026-10-22', False)]
     assert tmp_cache.get(key) == response
+
+
+def test_overall_health_freshness_includes_workouts_and_sleep(isolated_health_db):
+    from datetime import date, timedelta
+    ah = isolated_health_db
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    with ah._conn() as conn:
+        conn.execute('INSERT INTO health_sleep (type,start_date,end_date) VALUES (?,?,?)',
+                     ('HKCategoryValueSleepAnalysisAsleepCore', yesterday + ' 23:00:00 +0800',
+                      date.today().isoformat() + ' 07:00:00 +0800'))
+    result = DataFreshnessService(ah).get_freshness_context()
+    assert result['ah_overall_latest'] == yesterday
+    assert result['ah_status'] == 'fresh'
+    assert result['metrics']['hrv']['status'] == 'none'
+
+
+def test_newer_workout_advances_overall_freshness_only(isolated_health_db):
+    from datetime import date, timedelta
+    ah = isolated_health_db
+    older = (date.today() - timedelta(days=10)).isoformat()
+    today = date.today().isoformat()
+    with ah._conn() as conn:
+        conn.execute('INSERT INTO health_records (type,start_date,end_date,value) VALUES (?,?,?,?)',
+                     ('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', older + ' 08:00:00 +0800',
+                      older + ' 08:01:00 +0800', 40))
+        conn.execute('INSERT INTO health_workouts (workout_activity_type,start_date,end_date) VALUES (?,?,?)',
+                     ('Walking', today + ' 08:00:00 +0800', today + ' 08:30:00 +0800'))
+    result = DataFreshnessService(ah).get_freshness_context()
+    assert result['ah_overall_latest'] == today
+    assert result['ah_status'] == 'fresh'
+    assert result['metrics']['hrv']['latest'] == older
+    assert result['metrics']['hrv']['status'] == 'expired'

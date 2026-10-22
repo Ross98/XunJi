@@ -198,8 +198,7 @@ class DataFreshnessService:
             }
 
         # Overall AH latest
-        ah_dates = [v for v in all_dates.values() if v]
-        ah_overall = max(ah_dates) if ah_dates else None
+        ah_overall = self.ah.get_data_coverage()["end_date"]
         if ah_overall:
             ah_days_ago = (date.fromisoformat(today) - date.fromisoformat(ah_overall)).days
             if ah_days_ago <= 3:

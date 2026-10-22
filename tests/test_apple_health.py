@@ -344,3 +344,16 @@ def test_import_all_stops_cooperatively_and_flushes_current_batch(
     with ah._conn() as conn:
         imported = conn.execute("SELECT COUNT(*) FROM health_records").fetchone()[0]
     assert imported == 999
+
+
+def test_coverage_combines_all_tables_and_empty_stores(isolated_health_db):
+    ah = isolated_health_db
+    assert ah.get_data_coverage() == {'start_date': None, 'end_date': None}
+    with ah._conn() as conn:
+        conn.execute('INSERT INTO health_records (type,start_date,end_date) VALUES (?,?,?)',
+                     ('steps', '2026-10-10 01:00:00 +0800', '2026-10-10 02:00:00 +0800'))
+        conn.execute('INSERT INTO health_workouts (workout_activity_type,start_date,end_date) VALUES (?,?,?)',
+                     ('Walking', '2026-10-09 01:00:00 +0800', '2026-10-09 02:00:00 +0800'))
+        conn.execute('INSERT INTO health_sleep (type,start_date,end_date) VALUES (?,?,?)',
+                     ('AsleepCore', '2026-10-21 23:00:00 +0800', '2026-10-22 06:00:00 +0800'))
+    assert ah.get_data_coverage() == {'start_date': '2026-10-09', 'end_date': '2026-10-21'}

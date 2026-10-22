@@ -151,3 +151,22 @@ def test_hozz_status_includes_live_watcher_state(monkeypatch):
 
     monkeypatch.setattr(health, "_sync_watch_task", LiveTask())
     assert asyncio.run(health.hozz_sync_status())["watcher_running"] is True
+
+
+def test_sleep_only_store_is_imported_and_shown(monkeypatch, isolated_health_db, tmp_cache):
+    from datetime import date
+    from starlette.requests import Request
+    import hozz_sync
+    ah = isolated_health_db
+    day = date.today().isoformat()
+    with ah._conn() as conn:
+        conn.execute('INSERT INTO health_sleep (type,start_date,end_date) VALUES (?,?,?)',
+                     ('HKCategoryValueSleepAnalysisAsleepCore', day + ' 01:00:00 +0800', day + ' 07:00:00 +0800'))
+    monkeypatch.setattr(health, 'get_cache', lambda: tmp_cache)
+    monkeypatch.setattr(hozz_sync, 'source_folder', lambda: Path('/not-configured'))
+    response = asyncio.run(health.health_page(Request({'type': 'http', 'path': '/health', 'headers': []})))
+    html = response.body.decode()
+    assert ah.get_import_count()['total_sleep'] == 1
+    assert '尚未导入 Apple Health' not in html
+    assert '最近一晚睡眠' in html
+    assert '6.0小时' in html
