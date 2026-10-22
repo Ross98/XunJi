@@ -19,6 +19,13 @@ class Cache:
                     mtime TEXT NOT NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS cache_generation (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    generation INTEGER NOT NULL
+                )
+            """)
+            conn.execute("INSERT OR IGNORE INTO cache_generation VALUES (1, 0)")
 
     @contextmanager
     def _conn(self):
@@ -57,6 +64,22 @@ class Cache:
             ).fetchone()
             return row["mtime"] if row else None
 
+    def get_generation(self) -> int:
+        with self._conn() as conn:
+            return conn.execute("SELECT generation FROM cache_generation WHERE singleton=1").fetchone()[0]
+
+    def set_many_if_generation(self, values: dict[str, dict], generation: int) -> bool:
+        """Commit a read and its provenance only if no cache clear intervened."""
+        timestamp = datetime.now(timezone.utc).isoformat()
+        rows = [(key, json.dumps(value), timestamp) for key, value in values.items()]
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute("SELECT generation FROM cache_generation WHERE singleton=1").fetchone()[0]
+            if current != generation:
+                return False
+            conn.executemany("INSERT OR REPLACE INTO cache (key, data, mtime) VALUES (?, ?, ?)", rows)
+        return True
+
     def delete(self, key: str) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM cache WHERE key = ?", (key,))
@@ -67,6 +90,7 @@ class Cache:
 
     def clear(self, *, preserve_system: bool = False):
         with self._conn() as conn:
+            conn.execute("UPDATE cache_generation SET generation=generation+1 WHERE singleton=1")
             if preserve_system:
                 conn.execute("DELETE FROM cache WHERE substr(key, 1, 1) != '_'")
             else:

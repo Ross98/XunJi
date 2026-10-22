@@ -106,7 +106,7 @@ class DataService:
         self._cache = cache
         self._client = api_client
         self._training_attempts = {}
-        self._body_requests: dict[str, _BodyRequest] = {}
+        self._body_requests: dict[tuple[str, Optional[int]], _BodyRequest] = {}
         self._closing = False
 
     # ── Training ──
@@ -116,6 +116,20 @@ class DataService:
             "_xunji_refresh_time",
             {"time": datetime.now(timezone.utc).isoformat()},
         )
+
+    def _cache_generation(self) -> Optional[int]:
+        get_generation = getattr(self._cache, "get_generation", None)
+        return get_generation() if callable(get_generation) else None
+
+    def _save_read_result(self, key: str, data: dict, generation: Optional[int]) -> None:
+        commit = getattr(self._cache, "set_many_if_generation", None)
+        if generation is not None and callable(commit):
+            commit({key: data, "_xunji_refresh_time": {
+                "time": datetime.now(timezone.utc).isoformat(),
+            }}, generation)
+        else:
+            self._cache.set(key, data)
+            self._mark_xunji_refresh()
 
     @staticmethod
     def _is_valid_training_response(data: object) -> bool:
@@ -127,6 +141,7 @@ class DataService:
         needs_full = full and cached_mode is False and bool(extract_trains(cached))
         if cached is not None and not force_refresh and not needs_full:
             return cached
+        generation = self._cache_generation()
         now = monotonic()
         self._training_attempts = {key: started for key, started in self._training_attempts.items()
                                    if now - started < 30}
@@ -146,8 +161,7 @@ class DataService:
                 return cached
             raise
         if self._is_valid_training_response(data):
-            self._cache.set(cache_key, data)
-            self._mark_xunji_refresh()
+            self._save_read_result(cache_key, data, generation)
             return data
         return cached if cached is not None else data
 
@@ -235,24 +249,26 @@ class DataService:
         complete_cache = self.body_history_complete(cached, limit)
         if complete_cache and not force_refresh:
             return cached
-        pending = self._body_requests.get(cache_key)
+        generation = self._cache_generation()
+        request_key = (cache_key, generation)
+        pending = self._body_requests.get(request_key)
         if pending is None:
             pending = _BodyRequest(asyncio.create_task(self._load_body_history(
-                cache_key, start_date, end_date, types, limit, cached, complete_cache)))
-            self._body_requests[cache_key] = pending
+                cache_key, start_date, end_date, types, limit, cached, complete_cache, generation)))
+            self._body_requests[request_key] = pending
         pending.waiters += 1
         try:
             return await asyncio.shield(pending.task)
         finally:
             pending.waiters -= 1
             if pending.waiters == 0:
-                if self._body_requests.get(cache_key) is pending:
-                    del self._body_requests[cache_key]
+                if self._body_requests.get(request_key) is pending:
+                    del self._body_requests[request_key]
                 if not pending.task.done():
                     pending.task.cancel()
                     await asyncio.gather(pending.task, return_exceptions=True)
 
-    async def _load_body_history(self, cache_key, start_date, end_date, types, limit, cached, complete_cache):
+    async def _load_body_history(self, cache_key, start_date, end_date, types, limit, cached, complete_cache, generation):
         if cached is not None and not self._is_valid_body_response(cached):
             self._cache.delete(cache_key)
         try:
@@ -262,8 +278,7 @@ class DataService:
                 return cached
             raise
         if self._is_valid_body_response(data):
-            self._cache.set(cache_key, data)
-            self._mark_xunji_refresh()
+            self._save_read_result(cache_key, data, generation)
             return data
         return cached if complete_cache else data
 
