@@ -66,7 +66,7 @@
     <div class="plan-distribution">
     {% for group in plan.groups %}
         <div>
-            <span><strong>{{ group.name }}</strong><em>{{ group.count }}个训练日 · {% if group.key == 'cardio' %}{{ group.exercise_count }}条有氧记录{% else %}{{ group.exercise_count }}条动作 · {{ group.sets }}组{% endif %} · 距上次{{ group.days_since }}天</em></span>
+            <span><strong>{{ group.name }}</strong><em>{{ group.count }}个训练日 · {% if group.key == 'cardio' %}{{ group.exercise_count }}条有氧记录{% else %}{{ group.exercise_count }}条动作 · {{ group.sets }}组{% endif %} · {% if group.days_since is not none %}距上次{{ group.days_since }}天{% else %}上次日期未确认{% endif %}</em></span>
             <div><i style="width:{{ [group.coverage_pct,100]|min }}%;background:{% if group.coverage_pct < 50 %}#e57373{% elif group.coverage_pct < 80 %}#ffb74d{% else %}#66bb6a{% endif %}"></i></div>
             <b>{{ group.coverage_pct }}% / 目标{{ group.target_sets }}{% if group.key == 'cardio' %}条{% else %}组{% endif %}</b>
         </div>

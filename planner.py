@@ -211,11 +211,12 @@ def generate_plan(
                 0, (reference_date - date.fromisoformat(g["last_date"])).days
             )
         else:
-            g["days_since"] = 30
+            g["days_since"] = None
         target = GROUP_TARGETS[key]["sets_30d"]
         completed = g["exercise_count"] if key == "cardio" else g["sets"]
         coverage = min(completed / target, 1)
-        recency_pressure = min(g["days_since"] / 10, 1)
+        # Missing history retains scheduling pressure without inventing a date.
+        recency_pressure = min(g["days_since"] / 10, 1) if g["days_since"] is not None else 1
         g["target_sets"] = target
         g["coverage_pct"] = round(coverage * 100)
         g["deficit"] = round((1 - coverage) * 70 + recency_pressure * 30, 1)
@@ -285,17 +286,17 @@ def generate_plan(
                 "intensity": "休息",
             })
 
+    completed_label = (f"{focus['exercise_count']}条记录" if focus_key == "cardio"
+                       else f"{focus['sets']}组")
+    recency_label = (f"距上次{focus['days_since']}天" if focus["days_since"] is not None
+                     else "上次日期未确认")
     recommendation = {
         "action": readiness["action"],
         "intensity": readiness["intensity"],
         "reason": (
             "恢复指标偏弱，优先休息或低强度活动"
             if readiness["action"] == "rest"
-            else (
-                f"{focus['name']}近30天完成{focus['exercise_count']}条记录，距上次{focus['days_since']}天"
-                if focus_key == "cardio"
-                else f"{focus['name']}近30天完成{focus['sets']}组，距上次{focus['days_since']}天"
-            )
+            else f"{focus['name']}近30天完成{completed_label}，{recency_label}"
         ),
     }
 

@@ -176,3 +176,31 @@ def test_plan_set_counts_match_nested_group_summary():
     plan = generate_plan(trains, reference_date=date(2026, 10, 22))
     push = next(group for group in plan['groups'] if group['key'] == 'push')
     assert push['sets'] == summarize_training(trains)['total_sets'] == 2
+
+
+def test_missing_group_history_does_not_invent_a_last_training_date():
+    result = generate_plan([{
+        'datestr': '2026-10-22',
+        'movements': [{'name': '卧推', 'sets': [{'done': True}]}],
+    }], reference_date=date(2026, 10, 23))
+    groups = {g['key']: g for g in result['groups']}
+    assert groups['push']['days_since'] == 1
+    assert groups['pull']['days_since'] is None
+    assert result['focus_group']['days_since'] is None
+    assert '上次日期未确认' in result['recommendation']['reason']
+    assert '距上次30天' not in result['recommendation']['reason']
+    assert all(isinstance(g['deficit'], (int, float)) for g in result['groups'])
+
+
+def test_plan_html_distinguishes_missing_and_known_training_dates():
+    from app_state import get_jinja_env
+    from analysis import summarize_training
+    trains = [{'datestr': '2026-10-22', 'movements': [{'name': '卧推', 'sets': [{}]}]}]
+    plan = generate_plan(trains, reference_date=date(2026, 10, 23))
+    html = get_jinja_env().get_template('plan.html').render(
+        plan=plan, summary=summarize_training(trains), recovery={},
+        preferences=plan['preferences'], today='2026-10-23', days=30)
+    assert '上次日期未确认' in html
+    assert '距上次1天' in html
+    assert '距上次None天' not in html
+    assert '距上次30天' not in html
