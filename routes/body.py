@@ -45,7 +45,7 @@ RANGE_MAP = {
     "90": 90,
     "180": 180,
     "365": 365,
-    "all": 3650,
+    "all": None,
 }
 
 
@@ -54,6 +54,9 @@ def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list
     返回 (合并后的记录, 有 Apple Health 数据的日期集合)。
     """
     import apple_health as ah
+
+    records = [record for record in filter_body_records(records)
+               if start <= record["datestr"] <= end]
 
     ah_weight = ah.query_records_desc("HKQuantityTypeIdentifierBodyMass", start, end)
     ah_bf = ah.query_records_desc("HKQuantityTypeIdentifierBodyFatPercentage", start, end)
@@ -109,15 +112,19 @@ def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list
 @router.get("/body", response_class=HTMLResponse)
 async def body_page(
     request: Request,
-    range: str = Query("90", description="Days range: 30, 90, 180, all"),
+    range: str = Query("90", description="Days range: 30, 90, 180, 365, all"),
 ):
     ds = get_data_service()
-    today = date.today().isoformat()
-    days = RANGE_MAP.get(range, 90)
-    start = (date.today() - timedelta(days=days)).isoformat()
+    today_date = date.today()
+    today = today_date.isoformat()
+    range = range if range in RANGE_MAP else "90"
+    days = RANGE_MAP[range]
+    start = (today_date - timedelta(days=days - 1)).isoformat() if days is not None else date.min.isoformat()
 
     try:
-        body_data = await ds.get_body(start, today)
+        # A null API start requests all history; local SQLite uses an inclusive
+        # lower bound across its full supported calendar.
+        body_data = await ds.get_body(start if days is not None else None, today)
     except Exception:
         logger.exception("Body API unavailable; rendering Apple Health data only")
         body_data = {"res": {"records": []}}
@@ -257,7 +264,7 @@ async def body_page(
         records_data=_build_table_data(records_merged, changes, ah_dates, height_cm),
         ah_source=ah_source,
         ah_dates=ah_dates,
-        today=date.today().isoformat(),
+        today=today,
         
     ))
 

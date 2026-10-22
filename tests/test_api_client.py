@@ -143,7 +143,8 @@ def test_rate_limit_wait_can_be_cancelled_without_another_request(monkeypatch):
     assert len(calls) == 1
 
 
-def test_body_query_transmits_pagination_offset():
+@pytest.mark.parametrize('start', [None, '2020-01-01'])
+def test_body_query_transmits_pagination_offset(start):
     import json
     payloads = []
 
@@ -156,11 +157,12 @@ def test_body_query_transmits_pagination_offset():
         await client._client.aclose()
         client._client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
         try:
-            await client.query_body('2020-01-01', '2026-10-23', ['weight'], 500, offset=1000)
+            await client.query_body(start, '2026-10-23', ['weight'], 500, offset=1000)
         finally:
             await client.close()
 
     asyncio.run(run())
     assert payloads[0]['offset'] == 1000
+    assert payloads[0]['start_date'] == start
     assert payloads[0]['limit'] == 500
     assert payloads[0]['types'] == ['weight']

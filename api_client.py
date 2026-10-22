@@ -162,7 +162,7 @@ class XunjiAPIClient:
 
     async def query_body(
         self,
-        start_date: str,
+        start_date: Optional[str],
         end_date: str,
         types: Optional[list[str]] = None,
         limit: int = 500,
