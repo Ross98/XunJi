@@ -106,7 +106,8 @@ async def _backfill_training_history(
     now: datetime | None = None,
 ) -> None:
     """Fill missing recent training cache entries one request at a time."""
-    current_time = now or datetime.now(timezone.utc)
+    # API dates follow the dashboard's local calendar; UTC is only an instant.
+    current_time = (now or datetime.now(timezone.utc)).astimezone()
     end_date = today or current_time.date()
     for offset in range(days):
         training_date = (end_date - timedelta(days=offset)).isoformat()
