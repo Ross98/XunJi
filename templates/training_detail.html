@@ -21,7 +21,7 @@
     <div style="margin-bottom:12px;padding:10px;background:#f9f9f9;border-radius:6px;">
         <strong>{{ train.title or "无标题训练" }}</strong>
         {% if train.get("_cardio_metrics", {}).get("calories") %}
-        <div style="color:#888;font-size:12px;margin-top:4px;">
+        <div style="color:var(--text-muted);font-size:12px;margin-top:4px;">
             {% set cm = train._cardio_metrics %}
             {{ "%.0f"|format(cm.total_duration_min|float if cm.total_duration_min else 0) }}分钟 ·
             {% if cm.calories %}{{ "%.0f"|format(cm.calories|float) }}kcal{% endif %}
@@ -32,7 +32,7 @@
         {% for mov in train.movements %}
         <div class="movement-detail">
             {% if train.movements|length > 1 or train.title != mov.name %}<span style="font-weight:500;">{{ mov.name }}</span>{% endif %}
-            {% if mov.difficulty %}<span style="color:#888;font-size:11px;">({{ mov.difficulty }})</span>{% endif %}
+            {% if mov.difficulty %}<span style="color:var(--text-muted);font-size:13px;">({{ mov.difficulty }})</span>{% endif %}
             <div class="movement-sets">
             {% if mov.get("exetype", "") == "cardio" and mov.sets and mov.sets[0].calories %}
                 {% set cs = mov.sets[0] %}
@@ -52,7 +52,7 @@
                 {% for s in mov.sets %}<div class="set-row"><b>第{{ loop.index }}组</b><span>
                 {% if s.weight and s.weight != "0" and s.reps and s.reps != "0" %}
                 {{ s.weight }}{{ s.unit }} × {{ s.reps }}次
-                {% if s.rpe %}<span style="color:#888;"> RPE {{ s.rpe }}</span>{% endif %}
+                {% if s.rpe %}<span style="color:var(--text-muted);"> RPE {{ s.rpe }}</span>{% endif %}
                 {% elif s.time and s.time != "0" %}
                 {{ s.time }}秒
                 {% else %}
@@ -68,5 +68,5 @@
     {% endfor %}
 </div>
 {% else %}
-<div class="card"><p style="color:#888;padding:12px;">{{ date_str }} 无训练记录</p></div>
+<div class="card"><p style="color:var(--text-muted);padding:12px;">{{ date_str }} 无训练记录</p></div>
 {% endif %}

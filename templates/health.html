@@ -6,6 +6,21 @@
     <div><h1>健康数据</h1><p class="page-subtitle">先看可行动的健康指标；导入和数据库信息集中放在数据管理。</p></div>
 </div>
 
+<div class="card">
+    <div class="card-title">Hozz 自动同步</div>
+    <p class="card-description">循迹运行时每 60 秒检查 iCloud 新批次；按记录 ID 去重。手机后台同步时间由 iOS 决定。</p>
+    <p><strong>自动检查：{{ '运行中（每60秒）' if hozz.watcher_running else '未运行（启动寻迹后生效）' }}</strong></p>
+    <code class="path-code">{{ hozz.folder|e }}</code>
+    <p>最近检查：{{ hozz.checked_at_bj or '尚未检查' }}{% if hozz.check_stale %} · 检查状态已过期，历史成功不代表正在同步{% else %} · {{ {'ok':'检查完成','partial':'部分批次失败','unavailable':'目录不可用','cancelled':'已停止'}.get(hozz.status, hozz.status) }}{% endif %}</p>
+    <p>最近接收：{{ hozz.last_sync_bj or '尚未接收' }}（北京时间） · 去重原始记录 {{ hozz.samples }} 条 · 最近检查新增入库 {{ hozz.inserted }} 条</p>
+    <p>类型已完成 {{ hozz.complete }} · 同步中 {{ hozz.incomplete }} · 权限或覆盖未确认 {{ hozz.uncertain }}</p>
+    {% if hozz.incomplete or hozz.uncertain %}<p>部分类型尚未完成；页面数据可能不完整，最新已接收日期不代表手机最新记录。</p>{% endif %}
+    {% if hozz.unprojected %}<p>{{ hozz.unprojected }} 条记录完整保存，但因类型暂不支持或旧库时间键冲突，尚未用于图表。</p>{% endif %}
+    {% for error in hozz.errors %}<p>{{ error|e }}</p>{% endfor %}
+    <button onclick="startImport('/health/sync')" class="btn btn-primary" id="syncBtn">立即同步 Hozz</button>
+    {% if hozz.coverage %}<details><summary>查看各类型同步进度</summary><div class="data-table-wrap health-scroll-table"><table class="data-table"><thead><tr><th>类型</th><th>状态</th></tr></thead><tbody>{% for item in hozz.coverage %}<tr><td>{{ health_label(item.type)|e }}</td><td>{{ '已完成' if item.complete else '同步中' if item.state == 'draining' else '权限或覆盖未确认' }}（{{ item.state|e }}）</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
+</div>
+
 {% if not imported %}
 <div class="card empty-state-card">
     <h2>尚未导入 Apple Health</h2>
@@ -112,30 +127,34 @@ drawHealthChart('healthVo2Chart', {{ vo2|tojson|safe }}, '#2ecc71');
 
 let importPollTimer = null;
 let importWasRunning = false;
+let manualImport = false;
 async function pollImportStatus() {
     try {
         const response = await fetch('/health/import/status');
         const state = await response.json();
         const status = document.getElementById('importStatus');
         const button = document.getElementById('importBtn');
+        const syncButton = document.getElementById('syncBtn');
+        if (syncButton) syncButton.disabled = state.status === 'running';
         const bar = document.getElementById('importProgressBar');
         if (status) status.textContent = state.status === 'running' ? state.message + (state.processed ? ' · 已解析 '+state.processed+' 条' : '') : state.message;
         if (button) { button.disabled = state.status === 'running'; button.textContent = state.status === 'running' ? '导入进行中…' : '重新导入'; }
         if (bar) bar.style.width = state.status === 'running' ? '72%' : state.status === 'ok' ? '100%' : '0%';
         if (state.status === 'running') importWasRunning = true;
         if (state.status === 'running') importPollTimer = setTimeout(pollImportStatus, 1200);
-        else if (state.status === 'ok' && importWasRunning) { showGlobalToast('Apple Health 导入完成，共 '+state.total+' 条新记录'); setTimeout(()=>location.reload(),800); }
+        else if (state.status === 'ok' && importWasRunning) { importWasRunning = false; showGlobalToast('Apple Health 导入完成，共 '+state.total+' 条新记录'); if (manualImport || state.total > 0) setTimeout(()=>location.reload(),800); }
     } catch (error) { const status=document.getElementById('importStatus'); if(status) status.textContent='状态读取失败：'+error.message; }
 }
-async function startImport() {
+async function startImport(url = '/health/import') {
     const button = document.getElementById('importBtn'); if (button) button.disabled = true;
     try {
-        const response = await fetch('/health/import',{method:'POST'}); const result = await response.json();
+        const response = await fetch(url,{method:'POST'}); const result = await response.json();
         if (!['started','busy'].includes(result.status)) throw new Error(result.message || '无法启动导入');
         importWasRunning = true;
+        manualImport = true;
         pollImportStatus();
     } catch (error) { if(button) button.disabled=false; showGlobalToast('导入失败：'+error.message,'error'); }
 }
-{% if imported %}pollImportStatus();{% endif %}
+pollImportStatus();
 </script>
 {% endblock %}

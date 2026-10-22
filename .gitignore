@@ -1,17 +1,24 @@
 .env
+.env.*
+!.env.example
 body_config.json
+plan_config.json
+*.pem
+*.key
 __pycache__/
 *.pyc
 .cache/
 .pytest_cache/
 .worktrees/
 .DS_Store
-xunji_cache.sqlite
+*.sqlite*
+*.ndjson
+*.ndjson.*
+*.bak
+*.backup
 
 # Apple Health
 Apple Health/
-apple_health_cache.sqlite
-*.sqlite
 
 # IDE
 .claude/

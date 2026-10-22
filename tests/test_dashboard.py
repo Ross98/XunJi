@@ -18,6 +18,26 @@ from routes.dashboard import (
 import routes.dashboard as dashboard_module
 
 
+def test_week_change_does_not_compare_sparse_samples_as_seven_days():
+    trend = dashboard_module._build_trend([
+        {"start_date": f"2026-08-{day:02d}", "value": value}
+        for day, value in [(1, 38.6), (3, 38.9), (4, 39.1), (8, 39.2),
+                           (15, 38.6), (24, 38.4), (25, 38.4), (30, 38.0)]
+    ])
+    assert dashboard_module._chg7(trend) is None
+    assert not any(value is not None for value in dashboard_module._ma7(trend))
+
+
+def test_week_change_and_average_follow_calendar_across_year_boundary():
+    from datetime import date, timedelta
+    trend = dashboard_module._build_trend([
+        {"start_date": (date(2025, 12, 28) + timedelta(days=i)).isoformat(), "value": i}
+        for i in range(8)
+    ])
+    assert dashboard_module._chg7(trend) == 7
+    assert dashboard_module._ma7(trend)[-1] == 4
+
+
 def test_extract_trains_returns_empty_list_for_string_error_response():
     data = {"success": False, "res": "too frequent, retry after 5s"}
 

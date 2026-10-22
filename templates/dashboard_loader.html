@@ -41,7 +41,7 @@
 .dashboard-progress-track { height:8px; overflow:hidden; border-radius:999px; background:var(--surface-muted); }
 .dashboard-progress-bar { height:100%; border-radius:inherit; background:linear-gradient(90deg,#1a1a2e,#e94560); transition:width .45s ease; position:relative; }
 .dashboard-progress-bar::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent); animation:dashboardProgressShine 1.4s linear infinite; }
-.dashboard-progress-meta { display:flex; justify-content:space-between; gap:16px; margin-top:9px; color:var(--text-faint); font-size:11px; }
+.dashboard-progress-meta { display:flex; justify-content:space-between; gap:16px; margin-top:9px; color:var(--text-faint); font-size:13px; }
 .dashboard-retry { margin-top:22px; }
 @keyframes dashboardProgressShine { from { transform:translateX(-100%); } to { transform:translateX(100%); } }
 @media (max-width:600px) { .dashboard-loader-card { padding:28px 22px; } .dashboard-progress-meta { flex-direction:column; gap:4px; } }

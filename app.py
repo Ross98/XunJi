@@ -15,6 +15,8 @@ async def lifespan(app: FastAPI):
     os.makedirs(TEMPLATES_DIR, exist_ok=True)
     os.makedirs(STATIC_DIR / "css", exist_ok=True)
     get_data_service()
+    from routes.health import start_health_background_tasks
+    await start_health_background_tasks()
     try:
         yield
     finally:

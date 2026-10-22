@@ -4,6 +4,20 @@ import threading
 
 import pytest
 
+
+@pytest.mark.parametrize("query_name", ["query_records", "query_records_desc", "query_workouts", "query_sleep", "get_sleep_summary"])
+def test_timestamp_date_bounds_include_the_first_day(isolated_health_db, query_name):
+    ah = isolated_health_db
+    common = dict(start_date="2026-07-24 08:00:00 +0800", end_date="2026-07-24 09:00:00 +0800", source_name="test")
+    ah._bulk_insert([dict(common, type="steps", value=100, unit="count")],
+        [dict(common, workout_activity_type="Walking", duration=60, duration_unit="min",
+              total_distance=None, total_distance_unit=None, total_energy_burned=None, total_energy_burned_unit=None)],
+        [dict(common, type="HKCategoryValueSleepAnalysisAsleepCore")])
+    query = getattr(ah, query_name)
+    plain = query(start="2026-07-24", end="2026-07-25")
+    assert plain
+    assert query(start="2026-07-24 00:00:00", end="2026-07-25 23:59:59") == plain
+
 def test_get_latest_dates_returns_dict(isolated_health_db):
     ah = isolated_health_db
     result = ah.get_latest_dates()

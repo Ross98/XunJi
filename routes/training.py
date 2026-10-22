@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app_state import get_jinja_env, get_data_service, get_cache
+from data_service import extract_trains, get_cached_training
 from analysis import (
     summarize_training,
     movement_history,
@@ -70,12 +71,7 @@ def compute_frequency_stats(freq_counts: dict[str, int], today: date | None = No
 
 
 def _cached_training_has_data(data: object) -> bool:
-    if not isinstance(data, dict):
-        return False
-    res = data.get("res")
-    if isinstance(res, dict) and isinstance(res.get("trains"), list):
-        return bool(res["trains"])
-    return isinstance(data.get("trains"), list) and bool(data["trains"])
+    return bool(extract_trains(data))
 
 
 def _should_skip_training_backfill(cache, training_date: str, now: datetime) -> bool:
@@ -189,7 +185,7 @@ def _get_cached_training_dates() -> list[str]:
         cached = cache.get(k)
         if not cached:
             continue
-        trains = cached.get("res", {}).get("trains", []) or cached.get("trains", [])
+        trains = extract_trains(cached)
         if trains:
             dates.add(d)
     return sorted(dates)
@@ -209,34 +205,38 @@ def _merge_overlapping_trains(trains: list[dict]) -> list[dict]:
 
     for t in sorted_trains[1:]:
         gap = t.get("start", 0) - current.get("end", 0)
-        if gap < 15 * 60 * 1000:  # 15 min overlap window
-            # Merge if one is manual + other is Apple Health (cardio)
-            cur_has_manual = any(m.get("exetype") != "cardio" for m in current.get("movements", []))
-            cur_has_cardio = any(m.get("exetype") == "cardio" for m in current.get("movements", []))
-            t_has_manual = any(m.get("exetype") != "cardio" for m in t.get("movements", []))
-            t_has_cardio = any(m.get("exetype") == "cardio" for m in t.get("movements", []))
-            if (cur_has_manual and t_has_cardio) or (t_has_manual and cur_has_cardio):
-                current["end"] = max(current.get("end", 0), t.get("end", 0))
-                current["start"] = min(current.get("start", 0), t.get("start", 0))
-                current.setdefault("movements", []).extend(t.get("movements", []))
-                # Set total session duration
-                if not current["_cardio_metrics"]:
-                    dur_min = round((current["end"] - current["start"]) / 60000, 0)
-                    current["_cardio_metrics"]["total_duration_min"] = dur_min
-                # Extract cardio metrics from whichever train has them
-                for src in (current, t):
-                    for m in src.get("movements", []):
-                        if m.get("exetype") == "cardio":
-                            for s in m.get("sets", []):
-                                cal = s.get("calories") or (s.get("metrics", {}) or {}).get("calories")
-                                ahr = s.get("avgHeartRate") or (s.get("metrics", {}) or {}).get("avgHeartRate")
-                                mhr = s.get("maxHeartRate") or (s.get("metrics", {}) or {}).get("maxHeartRate")
-                                dur = s.get("time") or s.get("workoutTime")
-                                if cal or ahr:
-                                    current["_cardio_metrics"].update({
-                                        "calories": cal, "avgHeartRate": ahr,
-                                        "maxHeartRate": mhr, "duration_s": dur,
-                                    })
+        cur_has_manual = any(m.get("exetype") != "cardio" for m in current.get("movements", []))
+        cur_has_cardio = any(m.get("exetype") == "cardio" for m in current.get("movements", []))
+        t_has_manual = any(m.get("exetype") != "cardio" for m in t.get("movements", []))
+        t_has_cardio = any(m.get("exetype") == "cardio" for m in t.get("movements", []))
+        compatible = (cur_has_manual and t_has_cardio) or (t_has_manual and cur_has_cardio)
+        same_date = current.get("datestr") == t.get("datestr")
+        timed = all(
+            isinstance(train.get("start"), (int, float))
+            and isinstance(train.get("end"), (int, float))
+            and train["end"] > train["start"]
+            for train in (current, t)
+        )
+        if timed and same_date and gap < 15 * 60 * 1000 and compatible:
+            current["end"] = max(current.get("end", 0), t.get("end", 0))
+            current["start"] = min(current.get("start", 0), t.get("start", 0))
+            current["movements"] = current.get("movements", []) + t.get("movements", [])
+            # Set total session duration
+            dur_min = round((current["end"] - current["start"]) / 60000, 0)
+            current["_cardio_metrics"]["total_duration_min"] = dur_min
+            # The combined list already contains the incoming train's movements.
+            for m in current.get("movements", []):
+                if m.get("exetype") == "cardio":
+                    for s in m.get("sets", []):
+                        cal = s.get("calories") or (s.get("metrics", {}) or {}).get("calories")
+                        ahr = s.get("avgHeartRate") or (s.get("metrics", {}) or {}).get("avgHeartRate")
+                        mhr = s.get("maxHeartRate") or (s.get("metrics", {}) or {}).get("maxHeartRate")
+                        dur = s.get("time") or s.get("workoutTime")
+                        if cal or ahr:
+                            current["_cardio_metrics"].update({
+                                "calories": cal, "avgHeartRate": ahr,
+                                "maxHeartRate": mhr, "duration_s": dur,
+                            })
         else:
             # Remove cardio movements from merged train (data in _cardio_metrics)
             if current["_cardio_metrics"]:
@@ -257,10 +257,10 @@ def _compute_day_intensities() -> dict[str, float]:
     dates = _get_cached_training_dates()
     raw: dict[str, float] = {}
     for d in dates:
-        cached = cache.get(f"training:{d}:True") or cache.get(f"training:{d}:False")
+        cached = get_cached_training(cache, d, full=True)
         if not cached:
             continue
-        trains = cached.get("res", {}).get("trains", []) or cached.get("trains", [])
+        trains = extract_trains(cached)
         score = 0.0
         for train in trains:
             dur = (train.get("end", 0) - train.get("start", 0)) / 60000
@@ -352,9 +352,7 @@ async def training_detail_fragment(request: Request, dt: str):
     except Exception:
         logger.exception("Training detail fetch failed for %s", dt)
         data = {"res": {"trains": []}}
-    trains = data.get("res", {}).get("trains", [])
-    if not trains:
-        trains = data.get("trains", [])
+    trains = extract_trains(data)
     trains = apply_movement_cn_to_trains(trains)
     trains = _merge_overlapping_trains(trains)
     summary = summarize_training(trains)
@@ -418,9 +416,7 @@ async def training_page(request: Request):
     except Exception:
         logger.exception("Today's training fetch failed for %s", today_str)
     _ensure_training_history_backfill(ds, cache)
-    today_trains = today_data.get("res", {}).get("trains", [])
-    if not today_trains:
-        today_trains = today_data.get("trains", [])
+    today_trains = extract_trains(today_data)
     today_trains = apply_movement_cn_to_trains(today_trains)
     today_trains = _merge_overlapping_trains(today_trains)
     today_summary = summarize_training(today_trains)
@@ -430,11 +426,9 @@ async def training_page(request: Request):
     for d in sorted(active_dates):
         d_dt = datetime.strptime(d, "%Y-%m-%d").date()
         if (today - d_dt).days <= 90:
-            cached = get_cache().get(f"training:{d}:False") or get_cache().get(f"training:{d}:True")
+            cached = get_cached_training(cache, d)
             if cached:
-                cached_trains = cached.get("res", {}).get("trains", [])
-                if not cached_trains:
-                    cached_trains = cached.get("trains", [])
+                cached_trains = extract_trains(cached)
                 all_trains.extend(cached_trains)
 
     all_trains = apply_movement_cn_to_trains(all_trains)
@@ -496,19 +490,7 @@ async def training_track(movement_name: str):
     cached_dates = _get_cached_training_dates()
     all_trains = []
     for d in cached_dates:
-        cached = cache.get(f"training:{d}:False")
-        if cached:
-            trains = cached.get("res", {}).get("trains", [])
-            if not trains:
-                trains = cached.get("trains", [])
-            all_trains.extend(trains)
-        else:
-            cached = cache.get(f"training:{d}:True")
-            if cached:
-                trains = cached.get("res", {}).get("trains", [])
-                if not trains:
-                    trains = cached.get("trains", [])
-                all_trains.extend(trains)
+        all_trains.extend(extract_trains(get_cached_training(cache, d)))
     all_trains = apply_movement_cn_to_trains(all_trains)
     all_trains_raw = list(all_trains)
     all_trains = _merge_overlapping_trains(all_trains)

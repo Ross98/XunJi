@@ -18,7 +18,7 @@
             <td class="cal-empty"></td>
             {% else %}
             {% if d.has_data %}
-            <td class="cal-day cal-has-data{% if d.is_today %} cal-today{% endif %}" style="background: rgba(220,50,50,{{ 0.15 + d.intensity * 0.7 }});color:#fff;"
+            <td class="cal-day cal-has-data cal-load-{{ 3 if d.intensity >= 0.67 else 2 if d.intensity >= 0.34 else 1 }}{% if d.is_today %} cal-today{% endif %}"
             {% elif d.is_today %}
             <td class="cal-day cal-today"
             {% else %}

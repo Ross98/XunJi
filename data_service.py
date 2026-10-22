@@ -1,8 +1,62 @@
 from datetime import datetime, timezone
+import json
 from typing import Optional
 
 from api_client import XunjiAPIClient
 from cache import Cache
+
+
+def _response_records(data: object, key: str, *, decode_json: bool = False) -> Optional[list[dict]]:
+    """Validate both API envelopes without confusing errors with empty results."""
+    if not isinstance(data, dict) or data.get("success") is False:
+        return None
+    res = data.get("res")
+    containers = [res, data] if isinstance(res, dict) else [data]
+    for container in containers:
+        if key not in container:
+            continue
+        records = container[key]
+        if decode_json and isinstance(records, str):
+            try:
+                records = json.loads(records)
+            except ValueError:
+                continue
+        if isinstance(records, list) and all(isinstance(row, dict) for row in records):
+            return records
+    return None
+
+
+def extract_trains(data: object) -> list[dict]:
+    return _response_records(data, "trains") or []
+
+
+def extract_body_records(data: object) -> list[dict]:
+    return _response_records(data, "records", decode_json=True) or []
+
+
+def get_cached_training(cache, day: str, full: bool = False) -> Optional[dict]:
+    """A newer populated variant can supersede an older empty cache entry."""
+    key = f"training:{day}:{full}"
+    other_key = f"training:{day}:{not full}"
+    primary = cache.get(key)
+    if extract_trains(primary):
+        return primary
+    other = cache.get(other_key)
+    if _response_records(primary, "trains") is None:
+        return other if _response_records(other, "trains") is not None else None
+    if not extract_trains(other):
+        return primary
+    # Preserve a newer authoritative empty response (for example, a deletion).
+    get_mtime = getattr(cache, "get_mtime", None)
+    if get_mtime is not None:
+        try:
+            primary_time = datetime.fromisoformat(get_mtime(key))
+            other_time = datetime.fromisoformat(get_mtime(other_key))
+            if other_time > primary_time:
+                return other
+        except (TypeError, ValueError):
+            pass
+    return primary
 
 
 class DataService:
@@ -20,18 +74,13 @@ class DataService:
 
     @staticmethod
     def _is_valid_training_response(data: object) -> bool:
-        if not isinstance(data, dict):
-            return False
-        res = data.get("res")
-        return (
-            isinstance(res, dict) and isinstance(res.get("trains", []), list)
-        ) or isinstance(data.get("trains"), list)
+        return _response_records(data, "trains") is not None
 
     async def get_training(self, date: str, full: bool = False) -> dict:
         cache_key = f"training:{date}:{full}"
         cached = self._cache.get(cache_key)
         if self._is_valid_training_response(cached):
-            return cached
+            return get_cached_training(self._cache, date, full)
         if cached is not None:
             self._cache.delete(cache_key)
         data = await self._client.fetch_training(date, full)
@@ -55,10 +104,7 @@ class DataService:
 
     @staticmethod
     def _is_valid_body_response(data: object) -> bool:
-        if not isinstance(data, dict):
-            return False
-        res = data.get("res")
-        return isinstance(res, dict) or isinstance(data.get("records"), (list, str))
+        return _response_records(data, "records", decode_json=True) is not None
 
     async def get_body(
         self,

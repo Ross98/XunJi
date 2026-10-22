@@ -11,7 +11,12 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse
 from app_state import get_cache, get_jinja_env, get_data_service
-from data_service import DataFreshnessService
+from data_service import (
+    DataFreshnessService,
+    get_cached_training,
+    extract_trains as _extract_trains,
+    extract_body_records as _extract_body_records,
+)
 from analysis import summarize_training, summarize_body, body_latest
 
 router = APIRouter(tags=["dashboard"])
@@ -53,7 +58,7 @@ def _build_trend(records: list[dict]) -> list[dict]:
     result = []
     for d in sorted(by_date.keys()):
         vals = by_date[d]
-        result.append({"date": d[5:], "value": round(sum(vals) / len(vals), 1)})
+        result.append({"date": d[5:], "iso_date": d, "value": round(sum(vals) / len(vals), 1)})
     return result
 
 
@@ -61,32 +66,23 @@ def _ma7(trend: list[dict]) -> list:
     """7-day moving average from trend data."""
     if len(trend) < 7:
         return []
-    vals = [p["value"] for p in trend]
     out = []
-    for i in range(len(vals)):
-        if i < 6:
-            out.append(None)
-        else:
-            out.append(round(sum(vals[i-6:i+1]) / 7, 1))
+    by_date = {date.fromisoformat(p["iso_date"]): p["value"] for p in trend}
+    for point in trend:
+        end = date.fromisoformat(point["iso_date"])
+        values = [by_date.get(end - timedelta(days=offset)) for offset in range(7)]
+        out.append(round(sum(values) / 7, 1) if all(v is not None for v in values) else None)
     return out
 
 
 def _chg7(trend: list[dict]) -> Optional[float]:
     """Change over last 7 days (latest - 7d ago)."""
-    if len(trend) < 8:
+    if not trend:
         return None
-    return round(trend[-1]["value"] - trend[-8]["value"], 1)
-
-
-def _extract_trains(data: object) -> list[dict]:
-    """Return trains from supported API shapes; tolerate application errors."""
-    if not isinstance(data, dict):
-        return []
-    res = data.get("res")
-    if isinstance(res, dict) and isinstance(res.get("trains"), list):
-        return res["trains"]
-    trains = data.get("trains")
-    return trains if isinstance(trains, list) else []
+    last = trend[-1]
+    previous_day = (date.fromisoformat(last["iso_date"]) - timedelta(days=7)).isoformat()
+    previous = next((point for point in trend if point["iso_date"] == previous_day), None)
+    return round(last["value"] - previous["value"], 1) if previous else None
 
 
 async def _get_training_or_empty(ds, training_date: str) -> dict:
@@ -96,16 +92,6 @@ async def _get_training_or_empty(ds, training_date: str) -> dict:
     except Exception:
         logger.exception("Training API unavailable for %s", training_date)
         return {"res": {"trains": []}}
-
-
-def _extract_body_records(data: object) -> list[dict]:
-    if not isinstance(data, dict):
-        return []
-    res = data.get("res")
-    if isinstance(res, dict) and isinstance(res.get("records"), list):
-        return res["records"]
-    records = data.get("records")
-    return records if isinstance(records, list) else []
 
 
 async def _refresh_body_cache(ds, start: str, end: str) -> None:
@@ -159,10 +145,7 @@ def _get_cached_training_dates(cache, end_date: str, days: int = 14) -> set[str]
     training_dates: set[str] = set()
     for offset in range(days):
         current = (end - timedelta(days=offset)).isoformat()
-        cached = (
-            cache.get(f"training:{current}:False")
-            or cache.get(f"training:{current}:True")
-        )
+        cached = get_cached_training(cache, current)
         for train in _extract_trains(cached):
             training_date = train.get("datestr")
             if training_date:

@@ -1,6 +1,7 @@
 import sys; sys.path.insert(0, '.')
 import asyncio
-from data_service import DataFreshnessService, DataService
+import pytest
+from data_service import DataFreshnessService, DataService, extract_body_records, extract_trains
 
 
 class FakeCache:
@@ -17,6 +18,41 @@ class FakeCache:
 
     def delete(self, key):
         self.delete_calls.append(key)
+
+
+@pytest.mark.parametrize("nested", [True, False])
+def test_extractors_preserve_supported_payload_shapes(nested):
+    rows = [{"datestr": "2026-10-22", "type": "weight", "value": "70"}]
+    payload = {"records": '[{"datestr":"2026-10-22","type":"weight","value":"70"}]'}
+    assert extract_body_records({"res": payload} if nested else payload) == rows
+    payload = {"trains": rows}
+    assert extract_trains({"res": payload} if nested else payload) == rows
+
+
+def test_valid_empty_response_remains_cacheable():
+    cache = FakeCache()
+    service = DataService(cache, FakeClient({"res": {"trains": []}}))
+    asyncio.run(service.get_training("2026-01-01"))
+    assert cache.set_calls[0] == ("training:2026-01-01:False", {"res": {"trains": []}})
+
+
+def test_training_uses_newer_summary_when_old_full_cache_is_empty(tmp_cache):
+    day = "2026-09-04"
+    empty = {"res": {"trains": []}}
+    populated = {"res": {"trains": [{"datestr": day, "movements": []}]}}
+    tmp_cache.set(f"training:{day}:True", empty)
+    tmp_cache.set(f"training:{day}:False", populated)
+    service = DataService(tmp_cache, FakeClient(empty))
+    assert asyncio.run(service.get_training(day, full=True)) == populated
+
+
+def test_newer_empty_full_cache_remains_authoritative(tmp_cache):
+    day = "2026-09-04"
+    empty = {"res": {"trains": []}}
+    tmp_cache.set(f"training:{day}:False", {"res": {"trains": [{"datestr": day}]}})
+    tmp_cache.set(f"training:{day}:True", empty)
+    service = DataService(tmp_cache, FakeClient(empty))
+    assert asyncio.run(service.get_training(day, full=True)) == empty
 
 
 class BodyClient:
@@ -37,6 +73,29 @@ class FakeClient:
     async def fetch_training(self, date, full):
         self.calls.append((date, full))
         return self.response
+
+
+@pytest.mark.parametrize("payload", [
+    {"res": {}}, {"res": {"records": "{broken"}},
+    {"res": {"records": None}}, {"res": {"records": [None]}},
+    {"success": False, "res": {"records": []}},
+])
+def test_get_body_does_not_cache_malformed_payload(payload):
+    cache = FakeCache()
+    service = DataService(cache, BodyClient(payload))
+    asyncio.run(service.get_body("2026-01-01", "2026-01-31"))
+    assert cache.set_calls == []
+
+
+@pytest.mark.parametrize("payload", [
+    {"res": {}}, {"res": {"trains": [None]}},
+    {"success": False, "res": {"trains": []}},
+])
+def test_get_training_does_not_cache_malformed_payload(payload):
+    cache = FakeCache()
+    service = DataService(cache, FakeClient(payload))
+    asyncio.run(service.get_training("2026-01-01"))
+    assert cache.set_calls == []
 
 
 def test_get_training_evicts_invalid_cache_and_does_not_cache_api_error():

@@ -25,7 +25,7 @@
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
 })();
 </script>
-<link rel="stylesheet" href="/static/css/app.css?v=20260809-theme-picker">
+<link rel="stylesheet" href="/static/css/app.css?v=20261022-readable-text">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 <script>
@@ -124,6 +124,7 @@
         if (!window.Chart) return;
 
         Chart.defaults.color = colors.text;
+        Chart.defaults.font.size = 13;
         Chart.defaults.borderColor = colors.grid;
         Chart.defaults.plugins.legend.labels.color = colors.text;
         Object.assign(Chart.defaults.plugins.tooltip, {

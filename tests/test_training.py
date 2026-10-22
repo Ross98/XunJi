@@ -1,12 +1,63 @@
 import asyncio
+from copy import deepcopy
 from datetime import date, datetime, timezone
 
 from routes.training import (
+    _merge_overlapping_trains,
     _backfill_training_history,
     _ensure_training_history_backfill,
     stop_training_background_tasks,
     compute_frequency_stats,
 )
+
+
+def session(start, end, kind="strength"):
+    return {"start": start * 60000, "end": end * 60000,
+            "movements": [{"name": kind, "exetype": kind, "sets": []}]}
+
+
+def test_nearby_same_kind_sessions_are_not_dropped():
+    for kind in ("strength", "cardio"):
+        trains = [session(0, 30, kind), session(35, 60, kind)]
+        assert len(_merge_overlapping_trains(trains)) == 2
+
+
+def test_merge_does_not_mutate_input_and_updates_duration():
+    trains = [session(0, 30), session(5, 35, "cardio"), session(36, 60, "cardio")]
+    original = deepcopy(trains)
+    merged = _merge_overlapping_trains(trains)
+    assert trains == original
+    assert len(merged) == 1
+    assert merged[0]["_cardio_metrics"]["total_duration_min"] == 60
+
+
+def test_merge_keeps_sessions_without_timing_evidence_or_on_different_dates():
+    from routes.training import _merge_overlapping_trains
+
+    manual, cardio = session(0, 30), session(5, 35, "cardio")
+    manual["datestr"], cardio["datestr"] = "2026-10-21", "2026-10-22"
+    assert len(_merge_overlapping_trains([manual, cardio])) == 2
+    for train in (manual, cardio):
+        train.pop("start")
+        train.pop("end")
+        train["datestr"] = "2026-10-22"
+    assert len(_merge_overlapping_trains([manual, cardio])) == 2
+
+
+def test_training_detail_tolerates_application_error(monkeypatch, tmp_cache):
+    from starlette.requests import Request
+    from routes import training
+
+    class Service:
+        async def get_training(self, *args, **kwargs):
+            return {"success": False, "res": "too frequent"}
+
+    monkeypatch.setattr(training, "get_data_service", Service)
+    monkeypatch.setattr(training, "get_cache", lambda: tmp_cache)
+    tmp_cache.set("training:2026-08-01:True", {"res": "too frequent"})
+    request = Request({"type": "http", "path": "/training/2026-08-01"})
+    response = asyncio.run(training.training_detail_fragment(request, "2026-08-01"))
+    assert response.status_code == 200
 
 
 class FakeCache:

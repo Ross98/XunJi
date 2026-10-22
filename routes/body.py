@@ -7,7 +7,7 @@ import os
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from app_state import get_cache, get_jinja_env, get_data_service
-from data_service import DataFreshnessService
+from data_service import DataFreshnessService, extract_body_records
 from analysis import summarize_body, body_latest, body_stats, body_changes, calculate_bmi
 
 router = APIRouter(tags=["body"])
@@ -46,7 +46,7 @@ def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list
     ah_bf = ah.query_records_desc("HKQuantityTypeIdentifierBodyFatPercentage", start, end)
 
     if not ah_weight and not ah_bf:
-        return records, set()
+        return sorted(records, key=lambda row: row.get("datestr", ""), reverse=True), set()
 
     ah_dates = set()
     # Convert Apple Health records to 训记 format, merge by date
@@ -73,18 +73,14 @@ def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list
             ah_by_date[d]["bodyfat"] = bf_val
 
     merged = list(records)
+    existing_keys = {(record.get("datestr"), record.get("type")) for record in records}
 
     for d, vals in ah_by_date.items():
         for typ, val in vals.items():
             if val is None:
                 continue
             # Skip if 训记 already has this type on this date
-            has_existing = False
-            for existing in records:
-                if existing.get("datestr") == d and existing.get("type") == typ:
-                    has_existing = True
-                    break
-            if not has_existing:
+            if (d, typ) not in existing_keys:
                 merged.append({
                     "datestr": d,
                     "type": typ,
@@ -92,6 +88,7 @@ def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list
                     "source": "apple_health",
                 })
 
+    merged.sort(key=lambda row: row.get("datestr", ""), reverse=True)
     return merged, ah_dates
 
 
@@ -111,13 +108,7 @@ async def body_page(
     except Exception:
         logger.exception("Body API unavailable; rendering Apple Health data only")
         body_data = {"res": {"records": []}}
-    records = body_data.get("res", {}).get("records", [])
-    if not records:
-        records = body_data.get("records", [])
-    # API 返回大量数据时 records 可能是 JSON 字符串
-    if isinstance(records, str):
-        import json
-        records = json.loads(records)
+    records = extract_body_records(body_data)
 
     # Merge Apple Health data into gaps in the XunJi records.
     records_merged, ah_dates = _merge_apple_health(records, start, today)

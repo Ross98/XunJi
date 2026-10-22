@@ -4,6 +4,7 @@ import asyncio
 from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 import threading
+import logging
 
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
@@ -11,8 +12,11 @@ from fastapi.concurrency import run_in_threadpool
 from app_state import get_cache, get_jinja_env
 from data_service import DataFreshnessService
 import apple_health as ah
+import hozz_sync as hs
 
 router = APIRouter(tags=["health"])
+logger = logging.getLogger(__name__)
+SYNC_INTERVAL_SECONDS = 60
 _import_state_lock = threading.Lock()
 _import_state = {
     "status": "idle",
@@ -23,6 +27,7 @@ _import_state = {
     "finished_at": None,
 }
 _import_task = None
+_sync_watch_task = None
 _import_cancel_event = threading.Event()
 
 # 健康中英映射
@@ -165,13 +170,14 @@ def _build_body_table(body_mass: list[dict], body_fat: list[dict], max_rows: int
         d = r["start_date"][:10]
         if d not in by_date:
             by_date[d] = {"date": d}
-        by_date[d]["weight"] = round(r["value"], 2) if r.get("value") else None
+        if "weight" not in by_date[d] and r.get("value") is not None:
+            by_date[d]["weight"] = round(r["value"], 2)
     for r in body_fat:
         d = r["start_date"][:10]
         if d not in by_date:
             by_date[d] = {"date": d}
         bf = r["value"]
-        if bf is not None:
+        if "bodyfat" not in by_date[d] and bf is not None:
             by_date[d]["bodyfat"] = round(bf * 100, 1)  # 0.19 → 19%
 
     rows = sorted(by_date.values(), key=lambda x: x["date"], reverse=True)
@@ -260,6 +266,7 @@ async def health_page(request: Request):
         export_exists=ah.EXPORT_XML.exists(),
         export_size_mb=round(ah.EXPORT_XML.stat().st_size / 1024 / 1024, 1) if ah.EXPORT_XML.exists() else None,
         coverage=coverage,
+        hozz=_hozz_status_context(),
         database_size_mb=round(ah.HEALTH_DB_PATH.stat().st_size / 1024 / 1024, 1) if ah.HEALTH_DB_PATH.exists() else 0,
         today=date.today(),
     ))
@@ -290,9 +297,71 @@ async def import_status():
         return dict(_import_state)
 
 
+async def _run_hozz_job():
+    try:
+        result = await run_in_threadpool(
+            hs.sync, cache=get_cache(), cancel_event=_import_cancel_event)
+        _set_import_state(status="ok" if result["status"] == "ok" else "error",
+                          total=result["inserted"], processed=result["inserted"],
+                          message="Hozz 同步完成" if not result["errors"] else "；".join(result["errors"]),
+                          finished_at=datetime.now(timezone.utc).isoformat())
+    except Exception as exc:
+        _set_import_state(status="error", message=f"Hozz 同步失败: {exc}",
+                          finished_at=datetime.now(timezone.utc).isoformat())
+
+
+@router.post("/health/sync")
+async def trigger_hozz_sync():
+    global _import_task
+    with _import_state_lock:
+        if _import_state["status"] == "running":
+            return {"status": "busy", "message": "Apple Health 数据正在导入"}
+        _import_state.update(status="running", processed=0, total=None,
+                             message="正在检查 iCloud Hozz 新批次",
+                             started_at=datetime.now(timezone.utc).isoformat(), finished_at=None)
+    _import_cancel_event.clear()
+    _import_task = asyncio.create_task(_run_hozz_job())
+    return {"status": "started", "message": "Hozz 同步已开始"}
+
+
+@router.get("/health/sync/status")
+async def hozz_sync_status():
+    return await run_in_threadpool(_hozz_status_context)
+
+
+def _hozz_status_context():
+    result = hs.status()
+    result["watcher_running"] = _sync_watch_task is not None and not _sync_watch_task.done()
+    return result
+
+
+async def start_health_background_tasks():
+    global _sync_watch_task
+    if _sync_watch_task is not None and not _sync_watch_task.done():
+        return
+
+    async def watch():
+        while True:
+            try:
+                await trigger_hozz_sync()
+            except Exception:
+                logger.exception("Unable to start automatic Hozz check; will retry")
+                _set_import_state(status="error", message="自动检查启动失败，将在下一轮重试",
+                                  finished_at=datetime.now(timezone.utc).isoformat())
+            await asyncio.sleep(SYNC_INTERVAL_SECONDS)
+
+    _sync_watch_task = asyncio.create_task(watch())
+
+
 async def stop_health_background_tasks() -> None:
     """Signal the importer to stop, then cancel its asyncio wrapper."""
-    global _import_task
+    global _import_task, _sync_watch_task
+    watcher = _sync_watch_task
+    _sync_watch_task = None
+    if watcher is not None:
+        watcher.cancel()
+        with suppress(asyncio.CancelledError):
+            await watcher
     _import_cancel_event.set()
     task = _import_task
     _import_task = None

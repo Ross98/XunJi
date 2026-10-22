@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app_state import get_jinja_env, get_cache
 from analysis import summarize_training
+from data_service import extract_trains, get_cached_training
 from planner import DEFAULT_PLAN_PREFERENCES, generate_plan
 from movements_cn import apply_movement_cn_to_trains
 
@@ -42,9 +43,9 @@ async def plan_page(request: Request):
     recent_trains = []
     for i in range(30):
         d = (date.today() - timedelta(days=i)).isoformat()
-        cached = cache.get(f"training:{d}:False") or cache.get(f"training:{d}:True")
+        cached = get_cached_training(cache, d)
         if cached:
-            trains = cached.get("res", {}).get("trains", []) or cached.get("trains", [])
+            trains = extract_trains(cached)
             recent_trains.extend(trains)
 
     recent_trains = apply_movement_cn_to_trains(recent_trains)

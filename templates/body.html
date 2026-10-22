@@ -21,7 +21,7 @@
 
     <!-- 躯干 -->
     <div class="sub-card" style="margin-bottom:14px;padding:14px;background:#fff;border-radius:8px;">
-        <div style="font-size:13px;color:#888;font-weight:600;margin-bottom:8px;">躯干</div>
+        <div style="font-size:13px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">躯干</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;">
             {{ measurement('neck','脖围') }}{{ measurement('shoulder','肩宽') }}{{ measurement('chest','胸围') }}{{ measurement('weist','腰围') }}{{ measurement('bot','臀围') }}
         </div>
@@ -29,7 +29,7 @@
 
     <!-- 右侧 -->
     <div class="sub-card" style="margin-bottom:14px;padding:14px;background:#fff;border-radius:8px;">
-        <div style="font-size:13px;color:#888;font-weight:600;margin-bottom:8px;">右侧</div>
+        <div style="font-size:13px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">右侧</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;">
             {{ measurement('arm_right','大臂') }}{{ measurement('forearm_right','小臂') }}{{ measurement('leg_right','大腿') }}{{ measurement('cav_right','小腿') }}
         </div>
@@ -37,7 +37,7 @@
 
     <!-- 左侧 -->
     <div class="sub-card" style="padding:14px;background:#fff;border-radius:8px;">
-        <div style="font-size:13px;color:#888;font-weight:600;margin-bottom:8px;">左侧</div>
+        <div style="font-size:13px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">左侧</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;">
             {{ measurement('arm_left','大臂') }}{{ measurement('forearm_left','小臂') }}{{ measurement('leg_left','大腿') }}{{ measurement('cav_left','小腿') }}
         </div>
@@ -90,14 +90,14 @@
             <div class="stat-value">{{ bmi if bmi is not none else "--" }}</div>
             <div class="stat-label">BMI <span onclick="toggleHeightEdit()" style="cursor:pointer;font-size:18px;color:#1a1a2e;margin-left:6px;font-weight:bold;">✏</span></div>
             {% if bmi is not none %}
-            <div style="font-size:11px;color:#888;margin-top:2px;">
+            <div style="font-size:13px;color:var(--text-muted);margin-top:2px;">
                 {% if bmi < 18.5 %}偏瘦{% elif bmi < 24 %}正常{% elif bmi < 28 %}偏胖{% else %}肥胖{% endif %}
             </div>
             {% endif %}
             <div id="heightEdit" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid #eee;">
-                <span style="font-size:12px;color:#888;">身高</span>
+                <span style="font-size:12px;color:var(--text-muted);">身高</span>
                 <input type="number" id="heightInput" value="{{ height_cm }}" min="100" max="250" step="0.1" style="width:70px;margin:0 4px;padding:4px 6px;font-size:13px;border:1px solid #ddd;border-radius:4px;">
-                <span style="font-size:12px;color:#888;margin-right:6px;">cm</span>
+                <span style="font-size:12px;color:var(--text-muted);margin-right:6px;">cm</span>
                 <button onclick="saveHeight()" class="btn btn-primary" style="padding:4px 10px;font-size:12px;">保存</button>
                 <button onclick="cancelHeightEdit()" style="padding:4px 10px;font-size:12px;border:1px solid #ddd;border-radius:4px;background:#fff;cursor:pointer;">取消</button>
             </div>
@@ -114,7 +114,7 @@
             {% endif %}
             <div class="stat-label">期间体重变化</div>
             {% if period_bf_change is not none %}
-            <div style="font-size:11px;color:#888;margin-top:2px;">
+            <div style="font-size:13px;color:var(--text-muted);margin-top:2px;">
                 体脂 {{ "%.1f"|format(period_bf_change) }}%
             </div>
             {% endif %}
@@ -132,23 +132,23 @@
 <div class="stats-2col">
     <div class="stats-half">
         <div class="stats-half-title">体重统计 (kg)</div>
-        <div class="stats-row"><span class="label">最新</span><span class="value">{{ latest.get('weight',{}).get('value','--') }} <span style="font-size:10px;color:#aaa;">{{ latest.get('weight',{}).get('date','') }}</span></span></div>
+        <div class="stats-row"><span class="label">最新</span><span class="value">{{ latest.get('weight',{}).get('value','--') }} <span style="font-size:13px;color:var(--text-muted);">{{ latest.get('weight',{}).get('date','') }}</span></span></div>
         {% if period_weight_change is not none %}
         <div class="stats-row"><span class="label">区间变化</span><span class="value body-change">{{ "+" if period_weight_change > 0 }}{{ "%.2f"|format(period_weight_change) }}</span></div>
         {% endif %}
-        <div class="stats-row"><span class="label">最高</span><span class="value">{{ stats.weight.max|default("--") }}</span></div>
-        <div class="stats-row"><span class="label">最低</span><span class="value">{{ stats.weight.min|default("--") }}</span></div>
+        <div class="stats-row"><span class="label">最高</span><span class="value">{{ stats.get('weight',{}).get('max','--') }}</span></div>
+        <div class="stats-row"><span class="label">最低</span><span class="value">{{ stats.get('weight',{}).get('min','--') }}</span></div>
     </div>
     <div class="stats-half">
         <div class="stats-half-title">体脂率统计 (%)</div>
         {% if latest.get('bodyfat',{}).get('value') %}
-        <div class="stats-row"><span class="label">最新</span><span class="value">{{ latest.bodyfat.value }} <span style="font-size:10px;color:#aaa;">{{ latest.bodyfat.date }}</span></span></div>
+        <div class="stats-row"><span class="label">最新</span><span class="value">{{ latest.bodyfat.value }} <span style="font-size:13px;color:var(--text-muted);">{{ latest.bodyfat.date }}</span></span></div>
         {% endif %}
         {% if period_bf_change is not none %}
         <div class="stats-row"><span class="label">区间变化</span><span class="value body-change">{{ "+" if period_bf_change > 0 }}{{ "%.2f"|format(period_bf_change) }}</span></div>
         {% endif %}
-        <div class="stats-row"><span class="label">最高</span><span class="value">{{ stats.bodyfat.max|default("--") }}</span></div>
-        <div class="stats-row"><span class="label">最低</span><span class="value">{{ stats.bodyfat.min|default("--") }}</span></div>
+        <div class="stats-row"><span class="label">最高</span><span class="value">{{ stats.get('bodyfat',{}).get('max','--') }}</span></div>
+        <div class="stats-row"><span class="label">最低</span><span class="value">{{ stats.get('bodyfat',{}).get('min','--') }}</span></div>
     </div>
 </div>
 

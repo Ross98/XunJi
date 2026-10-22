@@ -76,17 +76,17 @@
 <div class="dashboard-health-grid">
     <a href="/health" class="card metric-spark-card">
         <div class="metric-spark-heading"><strong>{{ "%.0f"|format(health.latest_hrv) if health.latest_hrv is not none else "--" }}</strong><span>ms</span><em>{{ health.hrv_date or '暂无日期' }}</em></div>
-        <div class="stat-label">HRV{% if health.hrv_chg7 is not none %} · 较7天前 {% if health.hrv_chg7 > 0 %}+{% endif %}{{ health.hrv_chg7 }}{% endif %}</div>
+        <div class="stat-label">HRV{% if health.hrv_chg7 is not none %} · 日均较7天前 {% if health.hrv_chg7 > 0 %}+{% endif %}{{ health.hrv_chg7 }}{% endif %}</div>
         <div class="metric-spark"><canvas id="hrvChart"></canvas></div>
     </a>
     <a href="/health" class="card metric-spark-card">
         <div class="metric-spark-heading"><strong>{{ "%.0f"|format(health.latest_rhr) if health.latest_rhr is not none else "--" }}</strong><span>bpm</span><em>{{ health.rhr_date or '暂无日期' }}</em></div>
-        <div class="stat-label">静息心率{% if health.rhr_chg7 is not none %} · 较7天前 {% if health.rhr_chg7 > 0 %}+{% endif %}{{ health.rhr_chg7 }}{% endif %}</div>
+        <div class="stat-label">静息心率{% if health.rhr_chg7 is not none %} · 日均较7天前 {% if health.rhr_chg7 > 0 %}+{% endif %}{{ health.rhr_chg7 }}{% endif %}</div>
         <div class="metric-spark"><canvas id="rhrChart"></canvas></div>
     </a>
     <a href="/health" class="card metric-spark-card">
         <div class="metric-spark-heading"><strong>{{ "%.1f"|format(health.latest_vo2) if health.latest_vo2 is not none else "--" }}</strong><span>ml/kg/min</span><em>{{ health.vo2_date or '暂无日期' }}</em></div>
-        <div class="stat-label">VO₂ Max{% if health.vo2_chg7 is not none %} · 较7天前 {% if health.vo2_chg7 > 0 %}+{% endif %}{{ health.vo2_chg7 }}{% endif %}</div>
+        <div class="stat-label">VO₂ Max{% if health.vo2_chg7 is not none %} · 日均较7天前 {% if health.vo2_chg7 > 0 %}+{% endif %}{{ health.vo2_chg7 }}{% endif %}</div>
         <div class="metric-spark"><canvas id="vo2Chart"></canvas></div>
     </a>
     <a href="/health" class="card metric-spark-card sleep-summary-card">
@@ -121,10 +121,10 @@ function mkLine(id, data, maValues, color) {
         options: {
             responsive: true, maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
-            plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 9 } } }, tooltip: { enabled: true } },
+            plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } }, tooltip: { enabled: true } },
             scales: {
-                x: { display: true, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { maxTicksLimit: 4, font: { size: 8 }, color: '#bbb' } },
-                y: { display: true, grid: { color: 'rgba(0,0,0,0.06)' }, ticks: { font: { size: 8 }, color: '#bbb' } }
+                x: { display: true, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { maxTicksLimit: 4, font: { size: 12 }, color: '#bbb' } },
+                y: { display: true, grid: { color: 'rgba(0,0,0,0.06)' }, ticks: { font: { size: 12 }, color: '#bbb' } }
             }
         }
     });
@@ -156,7 +156,7 @@ else initHealthCharts();
         <div class="stat-value">{{ "%.0f"|format(recovery.today_hrv) if recovery.today_hrv else '--' }}</div>
         <div class="stat-label">最近一次 HRV</div>
         {% if recovery.vs_train_pct is not none %}
-        <div style="font-size:11px;margin-top:2px;">
+        <div style="font-size:13px;margin-top:2px;">
             <span style="{% if recovery.today_hrv and recovery.rest_avg and recovery.today_hrv >= recovery.rest_avg %}color:#388e3c{% else %}color:#e53935{% endif %}">
                 {% if recovery.today_hrv and recovery.rest_avg and recovery.today_hrv >= recovery.rest_avg %}🟢{% else %}🔴{% endif %}
                 {{ "+" if recovery.vs_train_pct|abs > 0.1 else "" }}{{ "%.0f"|format(recovery.vs_train_pct) }}%
@@ -258,10 +258,10 @@ if (recData && recData.length > 0) {
 </div> {# /sortable-card recovery #}
 
 <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
-<div style="display:flex;gap:16px;font-size:12px;color:#888;flex-wrap:wrap;justify-content:center;">
+<div style="display:flex;gap:16px;font-size:12px;color:var(--text-muted);flex-wrap:wrap;justify-content:center;">
     <span>🟢 <strong>HRV</strong> ↑好转 · <strong>RHR</strong> ↓好转 · <strong>VO₂</strong> ↑好转</span>
     <span>🔴 <strong>HRV</strong> ↓恶化 · <strong>RHR</strong> ↑恶化 · <strong>VO₂</strong> ↓恶化</span>
-    <span style="color:#bbb;">箭头=周变化 vs 7天前</span>
+    <span style="color:#bbb;">箭头=日均变化 vs 7天前</span>
 </div>
 
 <style>

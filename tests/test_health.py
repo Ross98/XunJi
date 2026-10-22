@@ -4,6 +4,15 @@ from pathlib import Path
 from routes import health
 
 
+def test_body_table_keeps_latest_measurement_per_day():
+    weights = [{"start_date": "2026-10-22 20:00:00", "value": 71},
+               {"start_date": "2026-10-22 08:00:00", "value": 70}]
+    fats = [{"start_date": "2026-10-22 19:00:00", "value": 0.19},
+            {"start_date": "2026-10-22 07:00:00", "value": 0.20}]
+    assert health._build_body_table(weights, fats) == [
+        {"date": "2026-10-22", "weight": 71, "bodyfat": 19}]
+
+
 def test_health_page_only_reloads_after_observing_active_import():
     template = (Path(__file__).parents[1] / "templates" / "health.html").read_text(
         encoding="utf-8"
@@ -71,3 +80,74 @@ def test_stop_health_background_tasks_signals_and_cancels(monkeypatch):
     assert health._import_cancel_event.is_set()
     assert task.cancelled()
     assert health._import_task is None
+
+
+def test_hozz_manual_sync_starts_job_and_reports_result(monkeypatch):
+    calls = []
+    monkeypatch.setattr(health.hs, "sync", lambda **kwargs: calls.append(kwargs) or
+        {"status": "ok", "inserted": 12, "errors": []})
+    monkeypatch.setattr(health, "get_cache", lambda: "cache")
+    health._reset_import_state_for_tests()
+
+    async def run():
+        assert (await health.trigger_hozz_sync())["status"] == "started"
+        await health._import_task
+        assert (await health.import_status())["total"] == 12
+    asyncio.run(run())
+    assert calls[0]["cache"] == "cache"
+
+
+def test_auto_sync_runs_then_stops_with_project(monkeypatch):
+    calls = []
+    async def fake_trigger():
+        calls.append("sync")
+        return {"status": "started"}
+    monkeypatch.setattr(health, "trigger_hozz_sync", fake_trigger)
+    health._reset_import_state_for_tests()
+
+    async def run():
+        await health.start_health_background_tasks()
+        await asyncio.sleep(0)
+        assert calls == ["sync"]
+        task = health._sync_watch_task
+        await health.stop_health_background_tasks()
+        assert task.cancelled()
+    asyncio.run(run())
+
+
+def test_auto_sync_recovers_after_trigger_failure(monkeypatch):
+    calls = []
+
+    async def run():
+        second_check = asyncio.Event()
+
+        async def fake_trigger():
+            calls.append("check")
+            if len(calls) == 1:
+                raise RuntimeError("temporary failure")
+            second_check.set()
+            return {"status": "started"}
+
+        monkeypatch.setattr(health, "trigger_hozz_sync", fake_trigger)
+        monkeypatch.setattr(health, "SYNC_INTERVAL_SECONDS", 0)
+        await health.start_health_background_tasks()
+        try:
+            await asyncio.wait_for(second_check.wait(), 1)
+        finally:
+            await health.stop_health_background_tasks()
+
+    asyncio.run(run())
+    assert len(calls) >= 2
+
+
+def test_hozz_status_includes_live_watcher_state(monkeypatch):
+    monkeypatch.setattr(health.hs, "status", lambda: {"status": "ok"})
+    monkeypatch.setattr(health, "_sync_watch_task", None)
+    assert asyncio.run(health.hozz_sync_status())["watcher_running"] is False
+
+    class LiveTask:
+        def done(self):
+            return False
+
+    monkeypatch.setattr(health, "_sync_watch_task", LiveTask())
+    assert asyncio.run(health.hozz_sync_status())["watcher_running"] is True

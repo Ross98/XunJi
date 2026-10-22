@@ -291,10 +291,10 @@ def query_records(type_filter: str = None,
         params.append(type_filter)
     if start:
         sql += " AND substr(start_date,1,10) >= ?"
-        params.append(start)
+        params.append(start[:10])
     if end:
         sql += " AND substr(start_date,1,10) <= ?"
-        params.append(end)
+        params.append(end[:10])
     sql += " ORDER BY start_date"
     if limit:
         sql += f" LIMIT {limit}"
@@ -316,10 +316,10 @@ def query_workouts(activity_type: str = None,
         params.append(activity_type)
     if start:
         sql += " AND substr(start_date,1,10) >= ?"
-        params.append(start)
+        params.append(start[:10])
     if end:
         sql += " AND substr(start_date,1,10) <= ?"
-        params.append(end)
+        params.append(end[:10])
     sql += " ORDER BY start_date DESC"
     if limit:
         sql += f" LIMIT {limit}"
@@ -422,10 +422,10 @@ def query_records_desc(type_filter: str = None,
         params.append(type_filter)
     if start:
         sql += " AND substr(start_date,1,10) >= ?"
-        params.append(start)
+        params.append(start[:10])
     if end:
         sql += " AND substr(start_date,1,10) <= ?"
-        params.append(end)
+        params.append(end[:10])
     sql += " ORDER BY start_date DESC"
     if limit:
         sql += f" LIMIT {limit}"
@@ -443,10 +443,10 @@ def query_sleep(start: str = None,
     params = []
     if start:
         sql += " AND substr(start_date,1,10) >= ?"
-        params.append(start)
+        params.append(start[:10])
     if end:
         sql += " AND substr(start_date,1,10) <= ?"
-        params.append(end)
+        params.append(end[:10])
     sql += " ORDER BY start_date DESC"
     if limit:
         sql += f" LIMIT {limit}"
@@ -464,10 +464,10 @@ def get_sleep_summary(start: str = None, end: str = None) -> list[dict]:
     params = []
     if start:
         sql += " AND substr(start_date,1,10) >= ?"
-        params.append(start)
+        params.append(start[:10])
     if end:
         sql += " AND substr(end_date,1,10) <= ?"
-        params.append(end)
+        params.append(end[:10])
     sql += " ORDER BY start_date"
 
     def _parse_dt(s: str) -> datetime:
