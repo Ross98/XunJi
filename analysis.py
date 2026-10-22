@@ -426,45 +426,49 @@ def heart_rate_trend(trains: list[dict]) -> list[dict]:
     return sorted(records, key=lambda x: x["date"])
 
 
-def _sum_calories(sets: list[dict]) -> float:
-    return sum(_metric_number(record, "calories")
-               for record in iter_movement_sets({"sets": sets}))
-
-
 def training_type_distribution(trains: list[dict], cardio_only: bool = False) -> list[dict]:
-    """Count frequency and total duration per training type."""
-    freq: dict[str, int] = {}
-    duration: dict[str, float] = {}
-    calories: dict[str, float] = {}
+    """Attribute measured metrics to their type, without dividing unrelated session totals."""
+    totals = {}
     for train in trains:
-        seen = set()
-        bounds = session_bounds(train)
-        train_dur = (bounds[1] - bounds[0]) / 60000 if bounds else 0
-        mov_count = len(train.get("movements", []))
-        dur_per_mov = train_dur / mov_count if mov_count > 0 else 0
-        train_cal = sum(_sum_calories(m.get("sets", [])) for m in train.get("movements", []))
-        cm = train.get("_cardio_metrics", {})
-        if cm.get("calories"):
-            train_cal += _safe_float(cm["calories"])
-        cal_per_mov = train_cal / mov_count if mov_count > 0 else 0
-        for mov in train.get("movements", []):
-            name = mov.get("name", "")
-            if cardio_only and mov.get("exetype") != "cardio":
+        movements = list(train.get("movements") or [])
+        movements.extend(train.get("_cardio_movements") or [])
+        movements = [mov for mov in movements if isinstance(mov, dict)]
+        per_type = {}
+        for mov in movements:
+            name = mov.get("name")
+            if not isinstance(name, str) or not name or (cardio_only and mov.get("exetype") != "cardio"):
                 continue
-            if name:
-                if name not in seen:
-                    seen.add(name)
-                    freq[name] = freq.get(name, 0) + 1
-                duration[name] = duration.get(name, 0) + dur_per_mov
-                if cal_per_mov > 0:
-                    calories[name] = calories.get(name, 0) + cal_per_mov
+            sets = list(iter_movement_sets(mov))
+            durations = [_metric_number(record, "time", "workoutTime", "duration_s") for record in sets]
+            entry = per_type.setdefault(name, {"seconds": 0, "calories": 0, "complete": True})
+            entry["seconds"] += sum(durations)
+            entry["calories"] += sum(_metric_number(record, "calories") for record in sets)
+            entry["complete"] &= bool(sets) and all(value > 0 for value in durations)
+        bounds = session_bounds(train)
+        for name, entry in per_type.items():
+            # Only a single-type session can safely supply otherwise absent
+            # duration evidence. A mixed session cannot be divided by guesswork.
+            sole_type = all(mov.get("name") == name and
+                            (not cardio_only or mov.get("exetype") == "cardio") for mov in movements)
+            if not entry["seconds"] and bounds and sole_type:
+                entry["seconds"] = (bounds[1] - bounds[0]) / 1000
+                entry["complete"] = True
+            total = totals.setdefault(name, {"count": 0, "seconds": 0, "calories": 0, "complete": True})
+            total["count"] += 1
+            total["seconds"] += entry["seconds"]
+            total["calories"] += entry["calories"]
+            total["complete"] &= entry["complete"]
     result = []
-    for k, v in freq.items():
-        item = {"name": k, "count": v, "duration_min": round(duration.get(k, 0), 0)}
-        if k in calories:
-            item["calories"] = round(calories[k], 0)
+    for name, total in totals.items():
+        minutes = round(total["seconds"] / 60, 2)
+        item = {"name": name, "count": total["count"],
+                "duration_min": minutes if total["complete"] else None}
+        if not total["complete"]:
+            item["known_duration_min"] = minutes
+        if total["calories"] > 0:
+            item["calories"] = round(total["calories"], 0)
         result.append(item)
-    return sorted(result, key=lambda x: -x["count"])
+    return sorted(result, key=lambda item: (-item["count"], item["name"]))
 
 
 def get_latest_weight(records: list[dict]) -> Optional[float]:

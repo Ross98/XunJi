@@ -116,4 +116,4 @@ def test_training_analysis_accepts_invalid_times_and_nested_calories():
                    {'items': [{'set': {'metrics': {'calories': 100}}}]},
                ]}]}]
     assert training_type_distribution(trains, cardio_only=True) == [
-        {'name': '跑步', 'count': 1, 'duration_min': 0, 'calories': 100}]
+        {'name': '跑步', 'count': 1, 'duration_min': None, 'known_duration_min': 0, 'calories': 100}]

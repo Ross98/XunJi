@@ -240,15 +240,35 @@ function renderAnalysisCharts(range=90) {
     // Type summary: keep each unit explicit instead of normalizing unlike axes.
     const typeData = (analysisData.type_dist || []).filter(d => d.name !== '力量训练');
     const typeSummary = document.getElementById('typeSummary');
+    typeSummary.replaceChildren();
     if (typeData.length > 0) {
         const maxCount = Math.max(...typeData.map(d=>d.count),1);
-        typeSummary.innerHTML = typeData.map(d => {
-            const hours = d.duration_min ? (d.duration_min/60).toFixed(1) : '0.0';
-            const each = d.count ? Math.round((d.duration_min||0)/d.count) : 0;
-            return '<div class="type-summary-row"><strong>'+d.name+'</strong><div class="type-bar"><i style="width:'+Math.round(d.count/maxCount*100)+'%"></i></div><span>'+d.count+'次 · '+hours+'小时 · 单次'+each+'分钟</span></div>';
-        }).join('');
+        typeData.forEach(d => {
+            const row = document.createElement('div');
+            row.className = 'type-summary-row';
+            const name = document.createElement('strong');
+            name.textContent = d.name;
+            const bar = document.createElement('div');
+            bar.className = 'type-bar';
+            const fill = document.createElement('i');
+            fill.style.width = Math.round(d.count / maxCount * 100) + '%';
+            bar.append(fill);
+            const detail = document.createElement('span');
+            if (d.duration_min === null || d.duration_min === undefined) {
+                detail.textContent = d.count + '次 · 时长未完整' +
+                    (d.known_duration_min > 0 ? ' · 已知至少' + d.known_duration_min + '分钟' : '');
+            } else {
+                detail.textContent = d.count + '次 · ' + (d.duration_min / 60).toFixed(1) +
+                    '小时 · 单次平均' + Math.round(d.duration_min / d.count) + '分钟';
+            }
+            row.append(name, bar, detail);
+            typeSummary.append(row);
+        });
     } else {
-        typeSummary.innerHTML = '<p class="inline-state">暂无类型数据</p>';
+        const empty = document.createElement('p');
+        empty.className = 'inline-state';
+        empty.textContent = '暂无类型数据';
+        typeSummary.append(empty);
     }
 }
 renderAnalysisCharts();
