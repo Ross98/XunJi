@@ -22,7 +22,7 @@ def _request(app, *, headers=None, client=("127.0.0.1", 53000)):
 def test_shutdown_requires_explicit_confirmation(monkeypatch):
     app = FastAPI()
     routes.register_routes(app)
-    monkeypatch.setattr(routes, "schedule_shutdown", lambda: None)
+    monkeypatch.setattr(routes, "schedule_shutdown", lambda **kwargs: None)
 
     response = _request(app)
 
@@ -33,7 +33,7 @@ def test_shutdown_requires_explicit_confirmation(monkeypatch):
 def test_shutdown_only_accepts_local_clients(monkeypatch):
     app = FastAPI()
     routes.register_routes(app)
-    monkeypatch.setattr(routes, "schedule_shutdown", lambda: None)
+    monkeypatch.setattr(routes, "schedule_shutdown", lambda **kwargs: None)
 
     response = _request(
         app,
@@ -48,7 +48,7 @@ def test_shutdown_schedules_process_exit_once(monkeypatch):
     calls = []
     app = FastAPI()
     routes.register_routes(app)
-    monkeypatch.setattr(routes, "schedule_shutdown", lambda: calls.append("shutdown"))
+    monkeypatch.setattr(routes, "schedule_shutdown", lambda **kwargs: calls.append("shutdown"))
     headers = {"X-Xunji-Shutdown": "confirm"}
 
     first = _request(app, headers=headers)

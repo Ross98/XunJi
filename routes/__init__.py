@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, HTTPException, Request, status
 
 from shutdown_service import schedule_shutdown
+from request_shutdown import RequestShutdownMiddleware, ShutdownRequests
 
 
 _LOCAL_CLIENTS = {"127.0.0.1", "::1"}
@@ -24,6 +25,8 @@ async def close_route_tasks() -> None:
 
 
 def register_routes(app: FastAPI):
+    app.state.shutdown_requests = ShutdownRequests()
+    app.add_middleware(RequestShutdownMiddleware, requests=app.state.shutdown_requests)
     from routes import (
         dashboard,
         training,
@@ -87,7 +90,8 @@ def register_routes(app: FastAPI):
             )
         if not getattr(app.state, "shutdown_requested", False):
             app.state.shutdown_requested = True
-            schedule_shutdown()
+            app.state.shutdown_requests.closing = True
+            app.state.shutdown_task = schedule_shutdown(before_signal=app.state.shutdown_requests.stop)
         return {
             "status": "shutting_down",
             "message": "项目正在关闭并释放资源",
