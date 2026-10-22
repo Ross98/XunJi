@@ -6,6 +6,7 @@ from api_client import XunjiAPIClient
 from cache import Cache
 from config import XunjiConfig
 from data_service import DataService
+from analysis import iter_movement_sets
 
 BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -15,6 +16,7 @@ jinja_env = Environment(
     loader=FileSystemLoader(str(TEMPLATES_DIR)),
     auto_reload=True,
 )
+jinja_env.globals["iter_movement_sets"] = iter_movement_sets
 
 _config = None
 _cache = None

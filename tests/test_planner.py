@@ -163,3 +163,16 @@ def test_explicit_cardio_rowing_is_not_counted_as_strength_pull():
     groups = {group["key"]: group for group in result["groups"]}
     assert groups["cardio"]["count"] == 1
     assert groups["pull"]["count"] == 0
+
+
+def test_plan_set_counts_match_nested_group_summary():
+    from analysis import summarize_training
+    trains = [{'datestr': '2026-10-21', 'movements': [
+        {'name': '卧推', 'sets': [{'items': [
+            {'set': {'weight': 60, 'reps': 10}}, {'set': {'weight': 50, 'reps': 8}},
+            {'set': None}, None,
+        ]}]},
+    ]}]
+    plan = generate_plan(trains, reference_date=date(2026, 10, 22))
+    push = next(group for group in plan['groups'] if group['key'] == 'push')
+    assert push['sets'] == summarize_training(trains)['total_sets'] == 2

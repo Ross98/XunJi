@@ -2,7 +2,7 @@
 
 from typing import Any, Optional
 from datetime import date, timedelta
-from analysis import classify_bodypart
+from analysis import classify_bodypart, iter_movement_sets
 
 
 DEFAULT_PLAN_PREFERENCES = {
@@ -194,12 +194,7 @@ def generate_plan(
                 groups[g]["_dates"].add(d)
             if d > groups[g]["last_date"]:
                 groups[g]["last_date"] = d
-            for s in m.get("sets", []):
-                if isinstance(s, dict):
-                    if "items" in s:
-                        groups[g]["sets"] += len(s["items"])
-                    else:
-                        groups[g]["sets"] += 1
+            groups[g]["sets"] += sum(1 for _ in iter_movement_sets(m))
 
             if name not in mov_tracker:
                 mov_tracker[name] = {"group": g, "last_date": d, "count": 0}

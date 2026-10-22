@@ -320,3 +320,60 @@ def test_calculate_bmi_accepts_numeric_string_weight():
     from analysis import calculate_bmi
 
     assert calculate_bmi("70.5", 170) == 24.4
+
+
+def test_movement_history_accumulates_all_sessions_and_blocks_on_same_day():
+    from analysis import movement_history
+    trains = [
+        {'datestr': '2026-10-21', 'movements': [
+            {'name': '卧推', 'sets': [{'weight': 60, 'reps': 10}]},
+            {'name': '卧推', 'sets': [{'weight': 65, 'reps': 8}]},
+        ]},
+        {'datestr': '2026-10-21', 'movements': [
+            {'name': '卧推', 'sets': [{'weight': 50, 'reps': 12}]},
+        ]},
+    ]
+    row, = movement_history(trains, '卧推')
+    assert row['total_sets'] == 3
+    assert row['total_volume'] == 1720
+    assert row['max_weight'] == 65
+    assert row['estimated_1rm'] == 82.3
+    assert movement_history(list(reversed(trains)), '卧推') == [row]
+
+
+def test_nested_sets_agree_between_summary_volume_and_movement_history():
+    from analysis import movement_history
+    movement = {'name': '卧推', 'sets': [
+        {'items': [{'set': {'weight': 60, 'reps': 10}},
+                   {'set': {'weight': 50, 'reps': 8}}]},
+        {'weight_kg': 40, 'reps': 12},
+    ]}
+    trains = [{'datestr': '2026-10-21', 'movements': [movement]}]
+    summary = summarize_training(trains)
+    row, = movement_history(trains, '卧推')
+    assert row['total_sets'] == summary['total_sets'] == 3
+    assert row['total_volume'] == summary['total_volume'] == 1480
+    assert row['max_weight'] == 60
+
+
+def test_movement_frequency_counts_days_instead_of_sessions():
+    trains = [{'datestr': day, 'movements': [{'name': '卧推'}, {'name': '卧推'}]}
+              for day in ['2026-10-21', '2026-10-21', '2026-10-22']]
+    assert movement_frequency(trains) == {'卧推': 2}
+
+
+@pytest.mark.parametrize('sets', [None, [None, 'bad', {'items': None}],
+                                  [{'items': [None, {'set': None}]}]])
+def test_unusable_sets_do_not_break_summary(sets):
+    trains = [{'datestr': '2026-10-21', 'movements': [{'name': '卧推', 'sets': sets}]}]
+    summary = summarize_training(trains)
+    assert summary['total_sets'] == 0
+    assert summary['total_volume'] == 0
+
+
+@pytest.mark.parametrize('value', ['NaN', 'Infinity', True])
+def test_nonfinite_training_numbers_do_not_poison_volume(value):
+    trains = [{'datestr': '2026-10-21', 'movements': [{'name': '卧推', 'sets': [
+        {'weight': value, 'reps': 10}, {'weight': 50, 'reps': 10},
+    ]}]}]
+    assert summarize_training(trains)['total_volume'] == 500

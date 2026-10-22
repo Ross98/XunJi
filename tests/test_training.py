@@ -199,3 +199,27 @@ def test_stop_training_background_tasks_cancels_live_task(monkeypatch):
 
     assert task.cancelled()
     assert training._history_backfill_task is None
+
+
+def test_nested_sets_are_visible_in_the_detail_fragment(monkeypatch, tmp_cache):
+    import re
+    from starlette.requests import Request
+    from routes import training
+
+    class Service:
+        async def get_training(self, *args, **kwargs):
+            return {'trains': [{'datestr': '2026-10-21', 'movements': [
+                {'name': '卧推', 'sets': [{'items': [
+                    {'set': {'weight': '60', 'unit': 'kg', 'reps': '10'}},
+                    {'set': {'weight': '50', 'unit': 'kg', 'reps': '8'}},
+                ]}]},
+            ]}]}
+
+    monkeypatch.setattr(training, 'get_cache', lambda: tmp_cache)
+    monkeypatch.setattr(training, 'get_data_service', Service)
+    response = asyncio.run(training.training_detail_fragment(
+        Request({'type': 'http', 'path': '/training/2026-10-21', 'headers': []}), '2026-10-21'))
+    html = re.sub(r'\s+', ' ', response.body.decode())
+    assert '60kg × 10次' in html
+    assert '50kg × 8次' in html
+    assert '第2组' in html

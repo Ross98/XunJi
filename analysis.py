@@ -1,39 +1,42 @@
 from typing import Any, Optional, Union
+import math
 
 import pandas as pd
 
 
 def _safe_float(v: Any) -> float:
+    if isinstance(v, bool):
+        return 0.0
     try:
-        return float(v)
-    except (ValueError, TypeError):
+        value = float(v)
+        return value if math.isfinite(value) else 0.0
+    except (ValueError, TypeError, OverflowError):
         return 0.0
 
 
+def iter_movement_sets(movement: dict):
+    """Yield ordinary sets and the child sets of supersets/descending groups."""
+    sets = movement.get("sets")
+    if not isinstance(sets, list):
+        return
+    for group in sets:
+        if not isinstance(group, dict):
+            continue
+        if "items" not in group:
+            yield group
+            continue
+        items = group["items"]
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and isinstance(item.get("set"), dict):
+                    yield item["set"]
+
+
 def _total_volume_for_movement(movement: dict) -> float:
-    total = 0.0
-    for s in movement.get("sets", []):
-        # Handle superset/descending sets with items
-        if "items" in s:
-            for item in s["items"]:
-                item_set = item.get("set", {})
-                w = _safe_float(item_set.get("weight", item_set.get("weight_kg", 0)))
-                reps = _safe_float(item_set.get("reps", 0))
-                total += w * reps
-        else:
-            # Check for sub-items inside the set
-            sub_items = s.get("items", [])
-            if sub_items:
-                for item in sub_items:
-                    item_set = item.get("set", {})
-                    w = _safe_float(item_set.get("weight", item_set.get("weight_kg", 0)))
-                    reps = _safe_float(item_set.get("reps", 0))
-                    total += w * reps
-            else:
-                w = _safe_float(s.get("weight", s.get("weight_kg", 0)))
-                reps = _safe_float(s.get("reps", 0))
-                total += w * reps
-    return total
+    return sum(
+        _safe_float(s.get("weight", s.get("weight_kg", 0))) * _safe_float(s.get("reps", 0))
+        for s in iter_movement_sets(movement)
+    )
 
 
 def training_volume_by_date(trains: list[dict]) -> dict[str, float]:
@@ -54,12 +57,15 @@ def training_volume_by_date(trains: list[dict]) -> dict[str, float]:
 def movement_frequency(trains: list[dict]) -> dict[str, int]:
     """Count how many training days each movement appears."""
     freq: dict[str, int] = {}
+    seen = set()
     for train in trains:
-        seen = set()
+        day = train.get("datestr", "")
+        if not day:
+            continue
         for mov in train.get("movements", []):
             name = mov.get("name", "")
-            if name and name not in seen:
-                seen.add(name)
+            if name and (day, name) not in seen:
+                seen.add((day, name))
                 freq[name] = freq.get(name, 0) + 1
     return freq
 
@@ -76,11 +82,7 @@ def summarize_training(trains: list[dict]) -> dict:
             dates.add(d)
         for mov in train.get("movements", []):
             total_volume += _total_volume_for_movement(mov)
-            for s in mov.get("sets", []):
-                if "items" in s:
-                    total_sets += len(s["items"])
-                else:
-                    total_sets += 1
+            total_sets += sum(1 for _ in iter_movement_sets(mov))
 
     vol_by_date = training_volume_by_date(trains)
     freq = movement_frequency(trains)
@@ -289,31 +291,26 @@ def movement_history(trains: list[dict], movement_name: str) -> list[dict]:
     """
     records: dict[str, dict] = {}
     for train in trains:
-        date = train.get("datestr", "")
+        day = train.get("datestr", "")
+        if not day:
+            continue
         for mov in train.get("movements", []):
             if mov.get("name", "") != movement_name:
                 continue
-            max_w = 0.0
-            vol = 0.0
-            set_count = 0
-            estimated_1rm = 0.0
-            for s in mov.get("sets", []):
+            row = records.setdefault(day, {
+                "date": day, "max_weight": 0.0, "total_volume": 0.0,
+                "total_sets": 0, "estimated_1rm": 0.0,
+            })
+            for s in iter_movement_sets(mov):
                 w = _safe_float(s.get("weight", s.get("weight_kg", 0)))
                 reps = _safe_float(s.get("reps", 0))
-                if w > max_w:
-                    max_w = w
-                vol += w * reps
-                set_count += 1
+                row["max_weight"] = max(row["max_weight"], w)
+                row["total_volume"] += w * reps
+                row["total_sets"] += 1
                 if w > 0 and reps > 0:
-                    estimated_1rm = max(estimated_1rm, w * (1 + reps / 30))
-            if date:
-                records[date] = {
-                    "date": date,
-                    "max_weight": max_w,
-                    "total_volume": vol,
-                    "total_sets": set_count,
-                    "estimated_1rm": round(estimated_1rm, 1),
-                }
+                    row["estimated_1rm"] = max(row["estimated_1rm"], w * (1 + reps / 30))
+    for row in records.values():
+        row["estimated_1rm"] = round(row["estimated_1rm"], 1)
     return sorted(records.values(), key=lambda x: x["date"])
 
 
