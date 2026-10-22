@@ -7,6 +7,11 @@ import routes
 from routes import health, training
 
 
+@pytest.fixture(autouse=True)
+def isolated_initialization(monkeypatch):
+    monkeypatch.setattr(application, 'initialize_health_store', lambda: None)
+
+
 def test_http_client_closes_even_when_job_cleanup_fails(monkeypatch):
     calls = []
 
@@ -79,3 +84,29 @@ def test_all_job_cleanup_finishes_before_error_is_propagated(monkeypatch):
         assert calls == ['health stopped']
 
     asyncio.run(run())
+
+
+def test_failed_health_initialization_still_closes_resources(monkeypatch):
+    calls = []
+
+    def initialize():
+        raise OSError('simulated initialization error')
+
+    async def stop():
+        calls.append('stop')
+
+    async def close():
+        calls.append('close')
+
+    monkeypatch.setattr(application, 'get_data_service', lambda: object())
+    monkeypatch.setattr(application, 'initialize_health_store', initialize)
+    monkeypatch.setattr(application, 'close_route_tasks', stop)
+    monkeypatch.setattr(application, 'close_state', close)
+
+    async def run():
+        with pytest.raises(OSError, match='initialization error'):
+            async with application.lifespan(application.app):
+                pass
+
+    asyncio.run(run())
+    assert calls == ['stop', 'close']

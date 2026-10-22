@@ -3,11 +3,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app_state import STATIC_DIR, TEMPLATES_DIR, close_state, get_data_service
 from routes import close_route_tasks, register_routes
+from apple_health import _init_db as initialize_health_store
 
 
 @asynccontextmanager
@@ -17,6 +19,7 @@ async def lifespan(app: FastAPI):
     from routes.health import start_health_background_tasks
     try:
         get_data_service()
+        await run_in_threadpool(initialize_health_store)
         await start_health_background_tasks()
         yield
     finally:
