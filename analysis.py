@@ -1,9 +1,6 @@
 from typing import Any, Optional, Union
 import math
 
-import pandas as pd
-
-
 def _safe_float(v: Any) -> float:
     if isinstance(v, bool):
         return 0.0
