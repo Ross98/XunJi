@@ -65,9 +65,12 @@ class Cache:
         with self._conn() as conn:
             conn.execute("DELETE FROM cache WHERE substr(key, 1, ?) = ?", (len(prefix), prefix))
 
-    def clear(self):
+    def clear(self, *, preserve_system: bool = False):
         with self._conn() as conn:
-            conn.execute("DELETE FROM cache")
+            if preserve_system:
+                conn.execute("DELETE FROM cache WHERE substr(key, 1, 1) != '_'")
+            else:
+                conn.execute("DELETE FROM cache")
 
     def keys_by_prefix(self, prefix: str) -> list[str]:
         with self._conn() as conn:

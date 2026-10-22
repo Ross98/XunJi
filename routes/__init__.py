@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, HTTPException, Request, status
 
@@ -41,29 +42,25 @@ def register_routes(app: FastAPI):
     @app.post("/admin/clear-cache")
     async def clear_cache():
         try:
-            from datetime import datetime, timezone, timedelta
             from app_state import get_cache
             c = get_cache()
-            # 保留系统 key 再清
-            health_time = c.get("_health_import_time")
-            c.clear()
-            # 恢复系统 key + 更新训记时间 (北京时间)
-            bj = datetime.now(timezone.utc) + timedelta(hours=8)
-            now = bj.isoformat()[:19]
-            c.set("_xunji_refresh_time", {"time": now})
-            if health_time:
-                c.set("_health_import_time", health_time)
+            # A cache clear is not a successful upstream refresh. Preserve all
+            # system markers atomically, including concurrent health updates.
+            c.clear(preserve_system=True)
             return {"status": "ok"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
     def to_bj(ts):
-        """若 ts 含 Z 或 +00:00 则转北京时间, 否则原样返回"""
-        if not ts: return ts
-        t = ts.replace('Z','').replace('+00:00','')
-        if 'T' in t and ts.endswith(('Z','+00:00')):
-            from datetime import datetime, timezone, timedelta
-            dt = datetime.fromisoformat(t).replace(tzinfo=timezone.utc) + timedelta(hours=8)
+        """Convert aware timestamps to Beijing time; legacy naive values are local."""
+        if not isinstance(ts, str) or not ts:
+            return None
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone(timedelta(hours=8)))
             return dt.isoformat()[:19]
         return ts[:19]
 
