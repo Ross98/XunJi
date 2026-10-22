@@ -22,7 +22,7 @@
 <div class="grid-2 plan-top-grid">
     <div class="card readiness-card">
         <div class="card-title">今日恢复状态</div>
-        <div class="readiness-score"><strong>{{ plan.readiness.score }}</strong><span>/100 · {{ plan.readiness.status }}</span></div>
+        <div class="readiness-score"><strong>{{ plan.readiness.score if plan.readiness.score is not none else '--' }}</strong><span>{% if plan.readiness.score is not none %}/100 · {% endif %}{{ plan.readiness.status }}</span></div>
         <b>{{ plan.readiness.intensity }}</b>
         <ul>{% for reason in plan.readiness.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
         <div class="recovery-metrics">
@@ -31,6 +31,7 @@
             <span>静息心率 <b>{{ recovery.rhr|default('--') }}</b></span>
             <span>步数 <b>{{ recovery.steps|default('--') }}</b></span>
         </div>
+        <p class="card-description">睡眠包含今日记录及相连的跨夜阶段；其余指标仅用今日记录。缺测不评分。</p>
     </div>
 
     <div class="card recommendation-card">

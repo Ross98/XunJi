@@ -99,6 +99,14 @@ def _assess_recovery(recovery: Optional[dict]) -> dict:
 
     rhr = recovery.get("rhr")
     rhr_avg = recovery.get("rhr_avg")
+    if sleep is None and not (hrv and hrv_avg) and not (rhr and rhr_avg):
+        return {
+            "score": None,
+            "status": "数据不足",
+            "intensity": "按训练间隔安排",
+            "action": "train",
+            "reasons": ["暂无足够的当日恢复数据，按训练间隔安排"],
+        }
     if rhr and rhr_avg:
         delta = rhr - rhr_avg
         if delta >= 8:
@@ -107,6 +115,8 @@ def _assess_recovery(recovery: Optional[dict]) -> dict:
         elif delta >= 4:
             score -= 10
             reasons.append("静息心率略高")
+        else:
+            reasons.append("静息心率未高于基线")
 
     score = max(0, min(100, score))
     if score < 50:
@@ -115,8 +125,6 @@ def _assess_recovery(recovery: Optional[dict]) -> dict:
         status, intensity, action = "恢复一般", "中低强度", "train"
     else:
         status, intensity, action = "恢复良好", "正常强度", "train"
-    if not reasons:
-        reasons.append("暂无足够恢复数据，按训练间隔判断")
     return {
         "score": score,
         "status": status,
