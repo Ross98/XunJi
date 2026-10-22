@@ -3,6 +3,7 @@
 !.env.example
 body_config.json
 plan_config.json
+.plan-*.tmp
 *.pem
 *.key
 __pycache__/

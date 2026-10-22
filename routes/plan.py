@@ -2,6 +2,8 @@
 from datetime import date, datetime, timedelta
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -9,7 +11,7 @@ from fastapi.responses import HTMLResponse
 from app_state import get_jinja_env, get_cache
 from analysis import summarize_training
 from data_service import extract_trains, get_cached_training
-from planner import DEFAULT_PLAN_PREFERENCES, generate_plan
+from planner import DEFAULT_PLAN_PREFERENCES, generate_plan, normalize_plan_preferences
 from movements_cn import apply_movement_cn_to_trains
 
 router = APIRouter(tags=["plan"])
@@ -22,16 +24,25 @@ def _load_plan_preferences() -> dict:
     if PLAN_CONFIG_PATH.exists():
         try:
             saved = json.loads(PLAN_CONFIG_PATH.read_text(encoding="utf-8"))
-            preferences.update({key: value for key, value in saved.items() if key in preferences})
+            return normalize_plan_preferences(saved)
         except (OSError, ValueError, TypeError):
             logger.exception("Unable to load plan preferences")
     return preferences
 
 
 def _save_plan_preferences(preferences: dict):
-    PLAN_CONFIG_PATH.write_text(
-        json.dumps(preferences, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=PLAN_CONFIG_PATH.parent,
+            prefix=".plan-", suffix=".tmp", delete=False,
+        ) as target:
+            temporary = Path(target.name)
+            json.dump(preferences, target, ensure_ascii=False, indent=2)
+        os.replace(temporary, PLAN_CONFIG_PATH)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _current_sleep_stages(records: list[dict], today: str) -> dict:
@@ -150,9 +161,12 @@ async def update_plan_settings(data: dict):
         if key in data:
             preferences[key] = data[key]
     try:
-        preferences["days_per_week"] = min(7, max(1, int(preferences["days_per_week"])))
-        preferences["session_minutes"] = min(180, max(15, int(preferences["session_minutes"])))
-    except (TypeError, ValueError):
-        return {"status": "error", "message": "训练天数或时长格式不正确"}
-    _save_plan_preferences(preferences)
+        preferences = normalize_plan_preferences(preferences, strict=True)
+    except ValueError:
+        return {"status": "error", "message": "训练偏好格式不正确：天数和时长需为数字，其余项目需为文字"}
+    try:
+        _save_plan_preferences(preferences)
+    except OSError:
+        logger.exception("Unable to save plan preferences")
+        return {"status": "error", "message": "训练偏好保存失败，请检查文件权限或磁盘空间后重试"}
     return {"status": "ok", "preferences": preferences}

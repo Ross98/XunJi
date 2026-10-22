@@ -53,18 +53,24 @@ def _classify_movement(name: str) -> str:
     return "other"
 
 
-def _normalize_preferences(preferences: Optional[dict]) -> dict:
+def normalize_plan_preferences(preferences: Optional[dict], *, strict: bool = False) -> dict:
     result = dict(DEFAULT_PLAN_PREFERENCES)
-    if preferences:
+    if isinstance(preferences, dict):
         result.update({k: v for k, v in preferences.items() if k in result})
-    try:
-        result["days_per_week"] = min(7, max(1, int(result["days_per_week"])))
-    except (TypeError, ValueError):
-        result["days_per_week"] = DEFAULT_PLAN_PREFERENCES["days_per_week"]
-    try:
-        result["session_minutes"] = min(180, max(15, int(result["session_minutes"])))
-    except (TypeError, ValueError):
-        result["session_minutes"] = DEFAULT_PLAN_PREFERENCES["session_minutes"]
+    for key, lower, upper in (("days_per_week", 1, 7), ("session_minutes", 15, 180)):
+        try:
+            if isinstance(result[key], bool):
+                raise ValueError("Boolean is not a training count")
+            result[key] = min(upper, max(lower, int(result[key])))
+        except (TypeError, ValueError, OverflowError) as exc:
+            if strict:
+                raise ValueError("Invalid numeric preference") from exc
+            result[key] = DEFAULT_PLAN_PREFERENCES[key]
+    for key in ("goal", "equipment", "injuries"):
+        if not isinstance(result[key], str):
+            if strict:
+                raise ValueError("Invalid text preference")
+            result[key] = DEFAULT_PLAN_PREFERENCES[key]
     return result
 
 
@@ -148,7 +154,7 @@ def generate_plan(
 ) -> dict[str, Any]:
     """Generate an explainable training plan from the last 30 days."""
     reference_date = reference_date or date.today()
-    preferences = _normalize_preferences(preferences)
+    preferences = normalize_plan_preferences(preferences)
     readiness = _assess_recovery(recovery)
     if not trains:
         return {
