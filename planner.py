@@ -2,7 +2,7 @@
 
 from typing import Any, Optional
 from datetime import date, timedelta
-from analysis import classify_bodypart, iter_movement_sets
+from analysis import classify_bodypart, iter_movement_sets, movement_is_unfinished
 
 
 DEFAULT_PLAN_PREFERENCES = {
@@ -183,6 +183,8 @@ def generate_plan(
     for t in trains:
         d = t.get("datestr", "")
         for m in t.get("movements", []):
+            if movement_is_unfinished(m):
+                continue
             name = m.get("name", "")
             if not name:
                 continue

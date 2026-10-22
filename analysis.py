@@ -11,8 +11,8 @@ def _safe_float(v: Any) -> float:
         return 0.0
 
 
-def iter_movement_sets(movement: dict):
-    """Yield ordinary sets and the child sets of supersets/descending groups."""
+def iter_movement_sets(movement: dict, *, include_unfinished: bool = False):
+    """Yield completed sets; missing legacy completion flags remain compatible."""
     sets = movement.get("sets")
     if not isinstance(sets, list):
         return
@@ -20,13 +20,21 @@ def iter_movement_sets(movement: dict):
         if not isinstance(group, dict):
             continue
         if "items" not in group:
-            yield group
+            if include_unfinished or group.get("done") is not False:
+                yield group
             continue
         items = group["items"]
         if isinstance(items, list):
             for item in items:
-                if isinstance(item, dict) and isinstance(item.get("set"), dict):
+                if (isinstance(item, dict) and isinstance(item.get("set"), dict)
+                        and (include_unfinished or item["set"].get("done") is not False)):
                     yield item["set"]
+
+
+def movement_is_unfinished(movement: dict) -> bool:
+    """Only explicit unfinished sets establish that an activity was not done."""
+    return (next(iter_movement_sets(movement, include_unfinished=True), None) is not None
+            and next(iter_movement_sets(movement), None) is None)
 
 
 def _total_volume_for_movement(movement: dict) -> float:
@@ -61,6 +69,8 @@ def movement_frequency(trains: list[dict]) -> dict[str, int]:
             continue
         for mov in train.get("movements", []):
             name = mov.get("name", "")
+            if movement_is_unfinished(mov):
+                continue
             if name and (day, name) not in seen:
                 seen.add((day, name))
                 freq[name] = freq.get(name, 0) + 1
@@ -271,6 +281,8 @@ def bodypart_distribution(trains: list[dict]) -> dict[str, int]:
         date = train.get("datestr", "")
         for mov in train.get("movements", []):
             name = mov.get("name", "")
+            if movement_is_unfinished(mov):
+                continue
             if not name:
                 continue
             bp = classify_bodypart(name)
@@ -293,6 +305,8 @@ def movement_history(trains: list[dict], movement_name: str) -> list[dict]:
             continue
         for mov in train.get("movements", []):
             if mov.get("name", "") != movement_name:
+                continue
+            if movement_is_unfinished(mov):
                 continue
             row = records.setdefault(day, {
                 "date": day, "max_weight": 0.0, "total_volume": 0.0,
@@ -432,7 +446,8 @@ def training_type_distribution(trains: list[dict], cardio_only: bool = False) ->
     for train in trains:
         movements = list(train.get("movements") or [])
         movements.extend(train.get("_cardio_movements") or [])
-        movements = [mov for mov in movements if isinstance(mov, dict)]
+        movements = [mov for mov in movements
+                     if isinstance(mov, dict) and not movement_is_unfinished(mov)]
         per_type = {}
         for mov in movements:
             name = mov.get("name")

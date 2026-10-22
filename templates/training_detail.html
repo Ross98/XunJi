@@ -36,6 +36,7 @@
             <div class="movement-sets">
             {% if mov.get("exetype", "") == "cardio" and mov.sets and mov.sets[0].calories %}
                 {% set cs = mov.sets[0] %}
+                {% if cs.done is sameas false %}<span>未完成 · </span>{% endif %}
                 {% set mins = (cs.time|int / 60)|round %}
                 <span>{{ mins }}分钟</span>
                 {% if cs.distance and cs.distance != "0" and cs.distance != "0.00" %}
@@ -49,7 +50,7 @@
                 {% endif %}
             {% else %}
                 <div class="set-table">
-                {% for s in iter_movement_sets(mov) %}<div class="set-row"><b>第{{ loop.index }}组</b><span>
+                {% for s in iter_movement_sets(mov, include_unfinished=true) %}<div class="set-row"><b>第{{ loop.index }}组{% if s.done is sameas false %} · 未完成{% endif %}</b><span>
                 {% if s.weight and s.weight != "0" and s.reps and s.reps != "0" %}
                 {{ s.weight }}{{ s.unit }} × {{ s.reps }}次
                 {% if s.rpe %}<span style="color:var(--text-muted);"> RPE {{ s.rpe }}</span>{% endif %}
