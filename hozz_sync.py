@@ -57,6 +57,8 @@ def _initialize():
                 type TEXT PRIMARY KEY, observed_at TEXT NOT NULL, raw TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS hozz_sync_state (id INTEGER PRIMARY KEY, raw TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS idx_hozz_samples_projection
+                ON hozz_samples(table_name, projected_type, start_date);
         """)
 
 
@@ -116,6 +118,47 @@ def _projection(r):
     return "health_workouts", "workout_activity_type", row
 
 
+def _restore_surviving_projection(conn, table, projected_type, start, counts):
+    keys = {'health_records': 'type', 'health_sleep': 'type',
+            'health_workouts': 'workout_activity_type'}
+    if table not in keys:
+        return
+    key = keys[table]
+    if conn.execute(f"SELECT 1 FROM {table} WHERE {key}=? AND start_date=?",
+                    (projected_type, start)).fetchone():
+        return  # Existing projections, including legacy XML, retain ownership.
+    candidates = conn.execute("""SELECT id, raw FROM hozz_samples h
+        WHERE table_name=? AND projected_type=? AND start_date=?
+        AND NOT EXISTS (SELECT 1 FROM hozz_deleted d WHERE d.id=h.id)
+        ORDER BY id""", (table, projected_type, start))
+    first = candidates.fetchone()
+    if first is None:
+        return
+    conn.execute("""UPDATE hozz_samples SET owns_projection=0, projection_state='collision'
+        WHERE table_name=? AND projected_type=? AND start_date=?
+        AND (owns_projection!=0 OR projection_state!='collision')""", (table, projected_type, start))
+
+    def candidate_row(candidate):
+        projection = _projection(json.loads(candidate['raw']))
+        if (not projection or projection[0] != table or projection[1] != key
+                or projection[2][key] != projected_type or projection[2]['start_date'] != start):
+            raise ValueError('Stored Hozz projection identity changed')
+        return projection[2]
+
+    row = candidate_row(first)
+    for candidate in candidates:
+        if candidate_row(candidate) != row:
+            return  # Conflicting survivors have no defensible priority.
+    columns = list(row)
+    conn.execute(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",
+                 list(row.values()))
+    conn.execute("""UPDATE hozz_samples SET projection_state='legacy_duplicate'
+        WHERE table_name=? AND projected_type=? AND start_date=?""", (table, projected_type, start))
+    conn.execute("UPDATE hozz_samples SET owns_projection=1, projection_state='projected' WHERE id=?",
+                 (first['id'],))
+    counts['inserted'] += 1
+
+
 def _ingest(conn, r, counts):
     if not isinstance(r, dict) or r.get("schemaVersion") != 1:
         raise ValueError("Unsupported Hozz schemaVersion")
@@ -143,6 +186,7 @@ def _ingest(conn, r, counts):
                 conn.execute(f"DELETE FROM {table} WHERE {key}=? AND start_date=?",
                              (old["projected_type"], old["start_date"]))
             conn.execute("DELETE FROM hozz_samples WHERE id=?", (identifier,))
+            _restore_surviving_projection(conn, old['table_name'], old['projected_type'], old['start_date'], counts)
             counts["deleted"] += 1
         return
     if conn.execute("SELECT 1 FROM hozz_deleted WHERE id=?", (identifier,)).fetchone():
@@ -162,6 +206,9 @@ def _ingest(conn, r, counts):
                        isinstance(old[k], (int, float)) and math.isclose(old[k], v, rel_tol=1e-8))
                        for k, v in row.items())
             state = "legacy_duplicate" if same else "collision"
+        elif conn.execute("""SELECT 1 FROM hozz_samples WHERE table_name=?
+                AND projected_type=? AND start_date=? LIMIT 1""", (table, projected_type, start)).fetchone():
+            state = 'collision'
         else:
             columns = list(row)
             conn.execute(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",
@@ -171,6 +218,8 @@ def _ingest(conn, r, counts):
     conn.execute("INSERT INTO hozz_samples VALUES (?,?,?,?,?,?,?,?,?)",
                  (identifier, r["type"], kind, json.dumps(r, ensure_ascii=False),
                   table, projected_type, start, owns, state))
+    if projection and state == 'collision':
+        _restore_surviving_projection(conn, table, projected_type, start, counts)
     counts["new_samples"] += 1
 
 

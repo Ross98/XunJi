@@ -179,3 +179,111 @@ def test_schema_backup_closes_its_destination_connection(isolated_health_db, mon
     for conn in connections:
         with pytest.raises(sqlite3.ProgrammingError, match='closed'):
             conn.execute('SELECT 1')
+
+
+@pytest.mark.parametrize('kind', ['quantity', 'category', 'workout'])
+def test_deleting_projection_owner_keeps_unique_surviving_sample(isolated_health_db, tmp_path, kind):
+    import hozz_sync as hs
+    changes = {}
+    if kind == 'category':
+        changes = {'type': 'HKCategoryTypeIdentifierSleepAnalysis', 'value': 4}
+    elif kind == 'workout':
+        changes = {'type': 'HKWorkoutTypeIdentifier', 'activityType': 37, 'duration': 1800}
+    first = sample('owner', kind, **changes)
+    second = sample('survivor', kind, **changes, source={'name': 'Phone'})
+    folder = tmp_path / 'batches'
+    batch(folder, 'a.ndjson', [first, second])
+    hs.sync(folder)
+    batch(folder, 'b.ndjson', [dict(schemaVersion=1, kind='deletion', id='owner', type=first['type'])])
+    hs.sync(folder)
+    ah = isolated_health_db
+    query = ah.query_records if kind == 'quantity' else ah.query_sleep if kind == 'category' else ah.query_workouts
+    rows = query()
+    assert len(rows) == 1
+    assert rows[0]['source_name'] == 'Phone'
+    assert hs.status()['samples'] == 1
+    assert hs.status()['unprojected'] == 0
+    batch(folder, 'c.ndjson', [first])
+    hs.sync(folder)
+    assert query() == rows
+    with ah._conn() as conn:
+        owner = conn.execute("SELECT owns_projection FROM hozz_samples WHERE id='survivor'").fetchone()[0]
+    assert owner == 1
+
+
+def test_identical_survivor_remains_visible_after_owner_deletion(isolated_health_db, tmp_path):
+    import hozz_sync as hs
+    folder = tmp_path / 'batches'
+    batch(folder, 'a.ndjson', [sample('owner'), sample('duplicate')])
+    hs.sync(folder)
+    batch(folder, 'b.ndjson', [dict(schemaVersion=1, kind='deletion', id='owner', type=sample()['type'])])
+    hs.sync(folder)
+    assert len(isolated_health_db.query_records()) == 1
+    assert hs.status()['samples'] == 1
+    assert hs.status()['unprojected'] == 0
+
+
+def test_ambiguous_survivors_stay_unprojected_until_unambiguous(isolated_health_db, tmp_path):
+    import hozz_sync as hs
+    folder = tmp_path / 'batches'
+    batch(folder, 'a.ndjson', [sample('owner'), sample('b', quantity={'value': 200, 'unit': 'count'}),
+                              sample('c', quantity={'value': 300, 'unit': 'count'})])
+    hs.sync(folder)
+    batch(folder, 'b.ndjson', [dict(schemaVersion=1, kind='deletion', id='owner', type=sample()['type'])])
+    hs.sync(folder)
+    assert isolated_health_db.query_records() == []
+    assert hs.status()['unprojected'] == 2
+    batch(folder, 'c.ndjson', [sample('d', quantity={'value': 400, 'unit': 'count'})])
+    hs.sync(folder)
+    assert isolated_health_db.query_records() == []
+    batch(folder, 'd.ndjson', [dict(schemaVersion=1, kind='deletion', id=identifier, type=sample()['type'])
+                              for identifier in ['c', 'd']])
+    hs.sync(folder)
+    assert isolated_health_db.query_records()[0]['value'] == 200
+    assert hs.status()['unprojected'] == 0
+
+
+def test_owner_replacement_rolls_back_with_invalid_batch(isolated_health_db, tmp_path):
+    import hozz_sync as hs
+    folder = tmp_path / 'batches'
+    batch(folder, 'a.ndjson', [sample('owner'), sample('survivor', quantity={'value': 200, 'unit': 'count'})])
+    hs.sync(folder)
+    path = batch(folder, 'b.ndjson', [dict(schemaVersion=1, kind='deletion', id='owner', type=sample()['type'])])
+    path.write_text(path.read_text()+'{broken\n')
+    assert hs.sync(folder)['status'] == 'partial'
+    assert isolated_health_db.query_records()[0]['value'] == 100
+    assert hs.status()['samples'] == 2
+    with isolated_health_db._conn() as conn:
+        assert conn.execute("SELECT owns_projection FROM hozz_samples WHERE id='owner'").fetchone()[0] == 1
+
+
+def test_legacy_projection_is_not_adopted_or_deleted_during_survivor_reconciliation(isolated_health_db, tmp_path):
+    import hozz_sync as hs
+    ah = isolated_health_db
+    ah._bulk_insert([dict(type=sample()['type'], start_date='2026-09-30 00:00:00 +0800',
+                         end_date='2026-09-30 00:01:00 +0800', value=100, unit='count', source_name='Watch')], [])
+    before = ah.query_records()
+    folder = tmp_path / 'batches'
+    batch(folder, 'a.ndjson', [sample('a'), sample('b')])
+    hs.sync(folder)
+    batch(folder, 'b.ndjson', [dict(schemaVersion=1, kind='deletion', id='a', type=sample()['type'])])
+    hs.sync(folder)
+    assert ah.query_records() == before
+    with ah._conn() as conn:
+        assert conn.execute("SELECT owns_projection FROM hozz_samples WHERE id='b'").fetchone()[0] == 0
+
+
+def test_identical_survivor_ownership_can_transfer_until_last_deletion(isolated_health_db, tmp_path):
+    import hozz_sync as hs
+    folder = tmp_path / 'batches'
+    batch(folder, '0.ndjson', [sample('a'), sample('b'), sample('c')])
+    hs.sync(folder)
+    for index, identifier in enumerate(['a', 'b', 'c'], 1):
+        batch(folder, f'{index}.ndjson', [dict(schemaVersion=1, kind='deletion', id=identifier, type=sample()['type'])])
+        hs.sync(folder)
+        assert len(isolated_health_db.query_records()) == (1 if identifier != 'c' else 0)
+        assert hs.status()['unprojected'] == 0
+    batch(folder, 'late.ndjson', [sample('a'), sample('b'), sample('c')])
+    hs.sync(folder)
+    assert isolated_health_db.query_records() == []
+    assert hs.status()['samples'] == 0
