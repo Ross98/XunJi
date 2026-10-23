@@ -226,7 +226,10 @@ def test_training_cleanup_preserves_snapshot_replaced_after_validation_read(tmp_
 
     monkeypatch.setattr(tmp_cache, 'get', racing_get)
     monkeypatch.setattr(service, '_load_training', load)
-    with pytest.raises(RuntimeError, match='old query failed'):
-        asyncio.run(service.get_training(END))
+    if clear:
+        with pytest.raises(RuntimeError, match='old query failed'):
+            asyncio.run(service.get_training(END))
+    else:
+        assert asyncio.run(service.get_training(END)) == fresh
     assert writer.get(key) == fresh
     assert writer.get('_xunji_refresh_time') == MARKER

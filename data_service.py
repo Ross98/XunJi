@@ -222,6 +222,13 @@ class DataService:
         get_generation = getattr(self._cache, "get_generation", None)
         return get_generation() if callable(get_generation) else None
 
+    def _current_cache_fallback(self, generation, read):
+        """A failed request may reuse only a still-present snapshot in its generation."""
+        if self._cache_generation() != generation:
+            return None
+        current = read()
+        return current if self._cache_generation() == generation else None
+
     def _discard_invalid_cache(self, key, snapshot, generation):
         discard = getattr(self._cache, "delete_if_unchanged", None)
         if generation is not None and callable(discard):
@@ -263,7 +270,9 @@ class DataService:
         previous = self._training_attempts.get(attempt)
         cooldown = 30 if full else 15
         if cached is not None and previous is not None and now - previous < cooldown:
-            return cached
+            current = self._current_cache_fallback(generation, lambda: get_cached_training(self._cache, date))
+            if current is not None:
+                return current
         exact = self._cache.get(cache_key)
         if exact is not None and not self._is_valid_training_response(exact) and not extract_trains(exact):
             self._discard_invalid_cache(cache_key, exact, generation)
@@ -271,13 +280,15 @@ class DataService:
         try:
             data = await self._client.fetch_training(date, full)
         except Exception:
-            if cached is not None:
-                return cached
+            current = self._current_cache_fallback(generation, lambda: get_cached_training(self._cache, date))
+            if current is not None:
+                return current
             raise
         if self._is_valid_training_response(data):
             self._save_read_result(cache_key, data, generation)
             return data
-        return cached if cached is not None else data
+        current = self._current_cache_fallback(generation, lambda: get_cached_training(self._cache, date))
+        return current if current is not None else data
 
     # ── Diet ──
 
@@ -407,7 +418,7 @@ class DataService:
         request_key = (cache_key, generation)
         return await self._shared_read(self._body_requests, request_key,
             lambda: self._load_body_history(
-                cache_key, start_date, end_date, types, limit, cached, complete_cache, generation))
+                cache_key, start_date, end_date, types, limit, cached, generation))
 
     @staticmethod
     async def _shared_read(requests, request_key, load):
@@ -428,24 +439,26 @@ class DataService:
                     pending.task.cancel()
                     await asyncio.gather(pending.task, return_exceptions=True)
 
-    async def _load_body_history(self, cache_key, start_date, end_date, types, limit, cached, complete_cache, generation):
+    def _body_read_fallback(self, cache_key, start_date, end_date, types, limit, generation):
+        current = self._current_cache_fallback(generation, lambda: get_cached_body(self._cache, cache_key))
+        if self.body_history_complete(current, limit):
+            return current
+        return self._body_snapshot_fallback(start_date, end_date, types, generation)
+
+    async def _load_body_history(self, cache_key, start_date, end_date, types, limit, cached, generation):
         if cached is not None and not self._is_valid_body_response(cached):
             self._discard_invalid_cache(cache_key, cached, generation)
         try:
             data = await self._fetch_body_history(start_date, end_date, types, limit)
         except Exception:
-            if complete_cache:
-                return get_cached_body(self._cache, cache_key) or cached
-            fallback = self._body_snapshot_fallback(start_date, end_date, types, generation)
+            fallback = self._body_read_fallback(cache_key, start_date, end_date, types, limit, generation)
             if fallback is not None:
                 return fallback
             raise
         if self._is_valid_body_response(data):
             self._save_read_result(cache_key, data, generation)
             return data
-        if complete_cache:
-            return get_cached_body(self._cache, cache_key) or cached
-        fallback = self._body_snapshot_fallback(start_date, end_date, types, generation)
+        fallback = self._body_read_fallback(cache_key, start_date, end_date, types, limit, generation)
         return fallback if fallback is not None else data
 
     # ── Diet Search / Upsert ──
