@@ -1,4 +1,6 @@
 import asyncio
+
+import pytest
 from pathlib import Path
 
 from routes import health
@@ -182,3 +184,57 @@ def test_cancelled_hozz_job_does_not_report_completion(monkeypatch):
     assert result['status'] == 'cancelled'
     assert '已停止' in result['message']
     assert '完成' not in result['message']
+
+
+@pytest.mark.parametrize("kind", ["hozz", "xml"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_shutdown_waits_for_import_worker_thread_before_returning(monkeypatch, kind, fail):
+    import threading
+
+    async def check():
+        entered = threading.Event()
+        cancel_seen = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        def worker(*, cancel_event, **kwargs):
+            entered.set()
+            try:
+                if cancel_event.wait(2):
+                    cancel_seen.set()
+                assert release.wait(2), 'test did not release worker'
+                if fail:
+                    raise RuntimeError('worker failed during cancellation')
+                return ({'status': 'cancelled', 'inserted': 0, 'errors': []}
+                        if kind == 'hozz' else 0)
+            finally:
+                finished.set()
+
+        health._reset_import_state_for_tests()
+        monkeypatch.setattr(health, 'get_cache', lambda: object())
+        monkeypatch.setattr(health.hs if kind == 'hozz' else health.ah,
+                            'sync' if kind == 'hozz' else 'import_all', worker)
+        trigger = health.trigger_hozz_sync if kind == 'hozz' else health.trigger_import
+        stop = None
+        try:
+            await trigger()
+            job = health._import_task
+            assert await asyncio.to_thread(entered.wait, 1)
+            stop = asyncio.create_task(health.stop_health_background_tasks())
+            assert await asyncio.to_thread(cancel_seen.wait, 1)
+            # Allow cancellation to propagate while the real worker still owns resources.
+            await asyncio.sleep(0.02)
+            assert not stop.done(), 'shutdown returned before its worker released resources'
+            assert not finished.is_set()
+            job.cancel()
+            await asyncio.sleep(0.02)
+            assert not stop.done(), 'repeated cancellation abandoned worker'
+        finally:
+            release.set()
+            if stop is not None:
+                await stop
+            assert await asyncio.to_thread(finished.wait, 1)
+        assert health._import_task is None
+        assert (await health.import_status())['status'] == 'cancelled'
+
+    asyncio.run(check())

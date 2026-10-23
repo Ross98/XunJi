@@ -126,12 +126,32 @@ def _set_import_state(**updates):
         _import_state.update(updates)
 
 
+async def _run_import_worker(func, **kwargs):
+    """Keep the thread joined even when its owning asyncio task is cancelled."""
+    worker = asyncio.create_task(run_in_threadpool(func, **kwargs))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        # Cancelling run_in_threadpool's asyncio wrapper cannot stop the thread.
+        # Its cancellation event must be observed before shared resources close.
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not worker.cancelled():
+            worker.exception()  # Consume failures; shutdown retains cancellation.
+        raise
+
+
 async def _run_import_job():
     def progress(processed):
         _set_import_state(processed=processed, message="正在解析并写入新记录")
 
     try:
-        total = await run_in_threadpool(
+        total = await _run_import_worker(
             ah.import_all,
             cache=get_cache(),
             progress_callback=progress,
@@ -297,7 +317,7 @@ async def import_status():
 
 async def _run_hozz_job():
     try:
-        result = await run_in_threadpool(
+        result = await _run_import_worker(
             hs.sync, cache=get_cache(), cancel_event=_import_cancel_event)
         if result["status"] == "cancelled":
             status, message = "cancelled", "Hozz 同步已停止"
@@ -359,7 +379,7 @@ async def start_health_background_tasks():
 
 
 async def stop_health_background_tasks() -> None:
-    """Signal the importer to stop, then cancel its asyncio wrapper."""
+    """Signal the importer to stop, cancel its wrapper, and join its worker."""
     global _import_task, _sync_watch_task
     watcher = _sync_watch_task
     _sync_watch_task = None
