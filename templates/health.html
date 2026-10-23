@@ -17,14 +17,28 @@
     <p class="card-description">循迹运行时每 60 秒检查 iCloud 新批次；按记录 ID 去重。手机后台同步时间由 iOS 决定。</p>
     <p><strong>自动检查：{{ '运行中（每60秒）' if hozz.watcher_running else '未运行（启动寻迹后生效）' }}</strong></p>
     <code class="path-code">{{ hozz.folder|e }}</code>
-    <p>最近检查：{{ hozz.checked_at_bj or '尚未检查' }}{% if hozz.check_stale %} · 检查状态已过期，历史成功不代表正在同步{% else %} · {{ {'ok':'检查完成','partial':'部分批次失败','unavailable':'目录不可用','cancelled':'已停止'}.get(hozz.status, hozz.status) }}{% endif %}</p>
+    <p>最近检查：{{ hozz.checked_at_bj or '尚未检查' }}{% if hozz.check_stale %} · 检查状态待重新确认，历史成功不代表正在同步{% else %} · {{ {'ok':'检查完成','partial':'部分批次失败','unavailable':'目录不可用','cancelled':'已停止'}.get(hozz.status, hozz.status) }}{% endif %}</p>
     <p>最近接收：{{ hozz.last_sync_bj or '尚未接收' }}（北京时间） · 去重原始记录 {{ hozz.samples }} 条 · 最近检查新增入库 {{ hozz.inserted }} 条</p>
     <p>类型已完成 {{ hozz.complete }} · 同步中 {{ hozz.incomplete }} · 权限或覆盖未确认 {{ hozz.uncertain }}</p>
     {% if hozz.incomplete or hozz.uncertain %}<p>部分类型尚未完成；页面数据可能不完整，最新已接收日期不代表手机最新记录。</p>{% endif %}
     {% if hozz.unprojected %}<p>{{ hozz.unprojected }} 条记录完整保存，但因类型暂不支持或旧库时间键冲突，尚未用于图表。</p>{% endif %}
     {% for error in hozz.errors %}<p>{{ error|e }}</p>{% endfor %}
     <button onclick="startImport('/health/sync')" class="btn btn-primary" id="syncBtn">立即同步 Hozz</button>
-    {% if hozz.coverage %}<details><summary>查看各类型同步进度</summary><div class="data-table-wrap health-scroll-table"><table class="data-table"><thead><tr><th>类型</th><th>状态</th></tr></thead><tbody>{% for item in hozz.coverage %}<tr><td>{{ health_label(item.type)|e }}</td><td>{{ '已完成' if item.complete else '同步中' if item.state == 'draining' else '权限或覆盖未确认' }}（{{ item.state|e }}）</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
+    {% if hozz.coverage %}
+    <details><summary>查看各类型同步进度</summary><div class="data-table-wrap health-scroll-table"><table class="data-table">
+    <thead><tr><th>类型</th><th>状态</th></tr></thead><tbody>
+    {% for item in hozz.coverage %}
+        {# Keep template hot reload compatible with a process awaiting restart. #}
+        {% set classification = item.coverage_status|default(
+            'complete' if item.complete is sameas true
+                and (item.state is undefined or item.state is none or item.state is string)
+                and item.state not in ['draining', 'authorizationIndeterminate']
+            else 'incomplete' if item.complete is sameas false and item.state == 'draining'
+            else 'uncertain') %}
+        <tr><td>{{ health_label(item.type)|e }}</td><td>{{ '已完成' if classification == 'complete' else '同步中' if classification == 'incomplete' else '权限或覆盖未确认' }}（{{ item.state|e }}）</td></tr>
+    {% endfor %}
+    </tbody></table></div></details>
+    {% endif %}
 </div>
 
 {% if not imported %}

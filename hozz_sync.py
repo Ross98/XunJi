@@ -77,6 +77,42 @@ def _number(value):
     return value
 
 
+def _stored_object(raw):
+    """Damaged metadata must not break a status read or the next sync."""
+    try:
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            return None
+        json.dumps(value, allow_nan=False)
+        return value
+    except (TypeError, ValueError, RecursionError):
+        return None
+
+
+def _timestamp(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            return None
+        observed.astimezone(ZoneInfo("Asia/Shanghai"))  # Must also be displayable.
+        return observed
+    except (ValueError, OverflowError):
+        return None
+
+
+def _coverage_status(row):
+    complete, state = row.get("complete"), row.get("state")
+    if state is not None and not isinstance(state, str):
+        return "uncertain"
+    if complete is True and state not in ("draining", "authorizationIndeterminate"):
+        return "complete"
+    if complete is False and state == "draining":
+        return "incomplete"
+    return "uncertain"
+
+
 def _projection(r):
     kind = r["kind"]
     if kind not in ("quantity", "category", "workout"):
@@ -160,18 +196,23 @@ def _restore_surviving_projection(conn, table, projected_type, start, counts):
 
 
 def _ingest(conn, r, counts):
-    if not isinstance(r, dict) or r.get("schemaVersion") != 1:
+    if not isinstance(r, dict) or type(r.get("schemaVersion")) is not int or r["schemaVersion"] != 1:
         raise ValueError("Unsupported Hozz schemaVersion")
     kind = r.get("kind")
     if kind == "hozzConnectionTest":
         return
     if kind == "typeCoverage":
+        if (not isinstance(r.get("type"), str) or not r["type"].strip()
+                or ("complete" in r and type(r["complete"]) is not bool)
+                or ("state" in r and not isinstance(r["state"], str))):
+            raise ValueError("Invalid Hozz coverage fields")
         _date(r["observedAt"])  # Reject naive timestamps before persisting coverage.
         observed = datetime.fromisoformat(r["observedAt"].replace("Z", "+00:00"))
         old = conn.execute("SELECT observed_at FROM hozz_coverage WHERE type=?", (r["type"],)).fetchone()
-        if old is None or observed >= datetime.fromisoformat(old[0]):
+        previous = _timestamp(old[0]) if old else None
+        if previous is None or observed >= previous:
             conn.execute("INSERT OR REPLACE INTO hozz_coverage VALUES (?,?,?)",
-                         (r["type"], observed.isoformat(), json.dumps(r)))
+                         (r["type"], observed.isoformat(), json.dumps(r, allow_nan=False)))
         return
     identifier = r.get("id")
     if not isinstance(identifier, str) or not identifier or not isinstance(r.get("type"), str):
@@ -276,8 +317,9 @@ def sync(folder=None, cache=None, cancel_event=None):
             result["status"] = "partial"
         with ah._conn() as conn:
             previous = conn.execute("SELECT raw FROM hozz_sync_state WHERE id=1").fetchone()
+            previous = _stored_object(previous[0]) if previous else None
             result["last_sync"] = (result["checked_at"] if result["files"] else
-                                   json.loads(previous[0]).get("last_sync") if previous else None)
+                                   previous.get("last_sync") if previous else None)
             conn.execute("INSERT OR REPLACE INTO hozz_sync_state VALUES (1,?)", (json.dumps(result),))
         if cache is not None and (result["new_samples"] or result["deleted"]):
             cache.set("_health_import_time", {"time": result["checked_at"]})
@@ -294,28 +336,52 @@ def status():
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='hozz_samples'").fetchone():
             return empty
         last = conn.execute("SELECT raw FROM hozz_sync_state WHERE id=1").fetchone()
-        if last:
-            empty.update(json.loads(last[0]))
+        saved = _stored_object(last[0]) if last else {}
+        if saved is None:
+            empty["errors"].append("上次同步状态损坏，等待重新检查。")
+            saved = {}
+        # Persisted metadata cannot override derived freshness or coverage flags.
+        for field in ("folder", "checked_at", "last_sync"):
+            if isinstance(saved.get(field), str):
+                empty[field] = saved[field]
+        saved_status = saved.get("status")
+        if isinstance(saved_status, str) and saved_status in ("ok", "partial", "unavailable", "cancelled"):
+            empty["status"] = saved_status
+        for field in ("files", "new_samples", "inserted", "deleted"):
+            value = saved.get(field)
+            empty[field] = value if type(value) is int and value >= 0 else 0
+        errors = saved.get("errors", [])
+        if isinstance(errors, list):
+            empty["errors"].extend(error for error in errors if isinstance(error, str))
         # Persisted paths may belong to another Mac or login; show this process's
         # configured destination separately from the last check's provenance.
-        empty["last_folder"] = empty["folder"] if last else None
+        empty["last_folder"] = saved.get("folder") if isinstance(saved.get("folder"), str) else None
         empty["folder"] = str(source_folder())
-        if empty.get("checked_at"):
-            try:
-                checked = datetime.fromisoformat(empty["checked_at"])
-                empty["checked_at_bj"] = _date(empty["checked_at"])
-                empty["check_stale"] = (
-                    datetime.now(timezone.utc) - checked
-                ).total_seconds() > CHECK_STALE_SECONDS
-            except (TypeError, ValueError):
-                empty["check_stale"] = True
+        checked = _timestamp(empty["checked_at"])
+        if checked is not None:
+            empty["checked_at_bj"] = _date(empty["checked_at"])
+            age = (datetime.now(timezone.utc) - checked).total_seconds()
+            empty["check_stale"] = not 0 <= age <= CHECK_STALE_SECONDS
         empty["samples"] = conn.execute("SELECT COUNT(*) FROM hozz_samples").fetchone()[0]
         empty["unprojected"] = conn.execute(
             "SELECT COUNT(*) FROM hozz_samples WHERE projection_state IN ('unsupported','collision')").fetchone()[0]
-        coverage = [json.loads(r[0]) for r in conn.execute("SELECT raw FROM hozz_coverage ORDER BY type")]
+        coverage = []
+        for row in conn.execute("SELECT type, raw FROM hozz_coverage ORDER BY type"):
+            item = _stored_object(row["raw"]) or {}
+            classification = _coverage_status(item)
+            # The stored key remains visible even when its JSON is damaged.
+            identifier = row["type"]
+            if not isinstance(identifier, str) or not identifier.strip():
+                identifier, classification = "未知类型", "uncertain"
+            elif item.get("type") != identifier:
+                classification = "uncertain"
+            item["type"] = identifier
+            item["state"] = item.get("state") if isinstance(item.get("state"), str) else "unconfirmed"
+            item["coverage_status"] = classification
+            coverage.append(item)
         empty["coverage"] = coverage
-        empty["complete"] = sum(r.get("complete") is True for r in coverage)
-        empty["incomplete"] = sum(r.get("state") == "draining" for r in coverage)
-        empty["uncertain"] = sum(r.get("complete") is not True and r.get("state") != "draining" for r in coverage)
-        empty["last_sync_bj"] = (_date(empty["last_sync"]) if empty.get("last_sync") else None)
+        for classification in ("complete", "incomplete", "uncertain"):
+            empty[classification] = sum(r["coverage_status"] == classification for r in coverage)
+        if _timestamp(empty["last_sync"]) is not None:
+            empty["last_sync_bj"] = _date(empty["last_sync"])
     return empty
