@@ -8,7 +8,7 @@ import os
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from app_state import get_cache, get_jinja_env, get_data_service
-from data_service import DataFreshnessService, extract_body_records, filter_body_records
+from data_service import DataFreshnessService, DataService, extract_body_records, filter_body_records
 from analysis import summarize_body, body_latest, body_stats, body_changes, calculate_bmi
 from local_settings import write_json_atomic
 
@@ -121,6 +121,7 @@ async def body_page(
     days = RANGE_MAP[range]
     start = (today_date - timedelta(days=days - 1)).isoformat() if days is not None else date.min.isoformat()
 
+    body_warning = None
     try:
         # A null API start requests all history; local SQLite uses an inclusive
         # lower bound across its full supported calendar.
@@ -128,6 +129,11 @@ async def body_page(
     except Exception:
         logger.exception("Body API unavailable; rendering Apple Health data only")
         body_data = {"res": {"records": []}}
+        body_warning = "训记暂时无法读取，当前仅展示 Apple Health 记录。稍后刷新重试。"
+    if isinstance(body_data, dict) and body_data.get("_cache_fallback"):
+        body_warning = "训记暂时无法读取，当前展示本机缓存与 Apple Health 记录，可能缺少近期数据。稍后刷新重试。"
+    elif not DataService._is_valid_body_response(body_data):
+        body_warning = "训记暂时无法读取，当前仅展示 Apple Health 记录。稍后刷新重试。"
     records = extract_body_records(body_data)
 
     # Merge Apple Health data into gaps in the XunJi records.
@@ -244,6 +250,7 @@ async def body_page(
     freshness_ctx = freshness_svc.get_freshness_context()
     return HTMLResponse(tmpl.render(
         request=request,
+        body_warning=body_warning,
         freshness=freshness_ctx,
         weight_trend=summary["weight_trend"],
         bodyfat_trend=summary["bodyfat_trend"],

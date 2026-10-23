@@ -3,6 +3,7 @@
 {% block content %}
 {% include '_freshness_bar.html' %}
 <div class="page-heading-row"><div><h1>身体数据</h1><p class="page-subtitle">先看体重与体脂趋势，再查看左右差异和详细围度。</p></div></div>
+{% if body_warning %}<p class="inline-state body-data-warning" role="status">{{ body_warning }}</p>{% endif %}
 {% macro measurement(key, label) -%}
 {% set item = latest.get(key,{}) %}{% set ch = latest_measurement_changes.get(key) %}
 <div class="measurement-item" title="{{ item.get('date','暂无日期') }} · {{ item.get('source','训记') }}">

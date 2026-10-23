@@ -202,8 +202,56 @@ class DataService:
 
     @staticmethod
     def body_history_complete(data: object, limit: int = 500) -> bool:
+        if isinstance(data, dict) and data.get("_cache_fallback"):
+            return False
         records = _response_records(data, "records", decode_json=True)
         return records is not None and (len(records) < limit or data.get("_history_complete") is True)
+
+    def _body_snapshot_fallback(self, start, end, types, generation):
+        """Use a compatible saved query only after failure; never promote it to fresh cache."""
+        if self._cache_generation() != generation:
+            return None
+        keys = getattr(self._cache, "keys_by_prefix", None)
+        if not callable(keys):
+            return None
+        requested_types = set(types) if types else None
+        candidates = []
+        for key in keys("body:"):
+            try:
+                _, type_str, lower, upper, page_size = key.split(":")
+                page_size = int(page_size)
+                if page_size <= 0 or date.fromisoformat(upper).isoformat() != upper:
+                    continue
+                if lower != "None":
+                    if date.fromisoformat(lower).isoformat() != lower or lower > upper:
+                        continue
+                    if start is None or lower > start:
+                        continue
+                if start is not None and upper < start:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            if type_str != "all" and (requested_types is None or not requested_types.issubset(type_str.split(","))):
+                continue
+            snapshot = self._cache.get(key)
+            if not self.body_history_complete(snapshot, page_size):
+                continue
+            get_mtime = getattr(self._cache, "get_mtime", None)
+            saved_at = get_mtime(key) if callable(get_mtime) else None
+            try:
+                version = datetime.fromisoformat(saved_at.replace("Z", "+00:00"))
+                if version.tzinfo is None:
+                    version = version.replace(tzinfo=timezone.utc)
+            except (AttributeError, TypeError, ValueError):
+                version = datetime.min.replace(tzinfo=timezone.utc)
+            candidates.append((version, upper, saved_at, snapshot))
+        if not candidates or self._cache_generation() != generation:
+            return None
+        _, upper, saved_at, snapshot = max(candidates, key=lambda candidate: candidate[:2])
+        records = [dict(row) for row in extract_body_records(snapshot)
+                   if (start is None or row["datestr"] >= start) and row["datestr"] <= min(end, upper)
+                   and (requested_types is None or row["type"] in requested_types)]
+        return {"records": records, "_cache_fallback": {"saved_at": saved_at, "end_date": upper}}
 
     async def _fetch_body_history(self, start_date, end_date, types, limit):
         first = await self._client.query_body(start_date, end_date, types, limit)
@@ -300,11 +348,17 @@ class DataService:
         except Exception:
             if complete_cache:
                 return cached
+            fallback = self._body_snapshot_fallback(start_date, end_date, types, generation)
+            if fallback is not None:
+                return fallback
             raise
         if self._is_valid_body_response(data):
             self._save_read_result(cache_key, data, generation)
             return data
-        return cached if complete_cache else data
+        if complete_cache:
+            return cached
+        fallback = self._body_snapshot_fallback(start_date, end_date, types, generation)
+        return fallback if fallback is not None else data
 
     # ── Diet Search / Upsert ──
 
