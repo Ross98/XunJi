@@ -392,6 +392,8 @@ li { margin: 4px 0; }
     color: var(--text-primary);
 }
 .btn-nav:hover { background: var(--control-hover); }
+.btn-nav:disabled { opacity:.45; cursor:default; }
+.btn-nav:disabled:hover { background:none; }
 .calendar-grid {
     width: 100%;
     border-collapse: collapse;

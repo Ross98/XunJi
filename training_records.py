@@ -3,6 +3,13 @@
 from datetime import date
 
 
+def is_training_date(value):
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except (TypeError, ValueError):
+        return False
+
+
 def _sets_view(sets):
     if not isinstance(sets, list):
         return []
@@ -24,12 +31,8 @@ def training_records_view(records):
     for record in records:
         if not isinstance(record, dict):
             continue
-        if 'datestr' in record:
-            try:
-                if date.fromisoformat(record['datestr']).isoformat() != record['datestr']:
-                    continue
-            except (TypeError, ValueError):
-                continue
+        if 'datestr' in record and not is_training_date(record['datestr']):
+            continue
         record = dict(record)
         if 'title' in record and not isinstance(record['title'], str):
             record['title'] = ''

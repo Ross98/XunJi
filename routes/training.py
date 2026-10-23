@@ -5,7 +5,7 @@ import logging
 from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Path, Request
 from fastapi.responses import HTMLResponse
 from app_state import get_jinja_env, get_data_service, get_cache
 from data_service import DataService, extract_trains, get_cached_training, resolve_training_cache
@@ -21,6 +21,7 @@ from analysis import (
 )
 from movements_cn import apply_movement_cn_to_trains
 from training_charts import build_chart_ranges, select_training_window
+from training_records import is_training_date
 
 router = APIRouter(tags=["training"])
 logger = logging.getLogger(__name__)
@@ -149,11 +150,8 @@ def _parse_date_from_cache_key(key: str) -> str | None:
     if len(parts) >= 2 and parts[0] == "training":
         # The date is always the second part
         d = parts[1]
-        try:
-            datetime.strptime(d, "%Y-%m-%d")
+        if is_training_date(d):
             return d
-        except ValueError:
-            return None
     return None
 
 
@@ -275,6 +273,8 @@ def _build_calendar(year: int, month: int, active_dates: set[str], intensities: 
         "prev_month": prev_month,
         "next_year": next_year,
         "next_month": next_month,
+        "can_prev": prev_year >= date.min.year,
+        "can_next": next_year <= date.max.year,
         "month_name": ["", "一月", "二月", "三月", "四月", "五月", "六月",
                         "七月", "八月", "九月", "十月", "十一月", "十二月"][month],
         "weeks": weeks,
@@ -283,10 +283,12 @@ def _build_calendar(year: int, month: int, active_dates: set[str], intensities: 
 
 # Order matters: specific routes before parameterized ones
 @router.get("/training/calendar/{year}/{month}", response_class=HTMLResponse)
-async def training_calendar_fragment(request: Request, year: int, month: int):
+async def training_calendar_fragment(
+    request: Request,
+    year: int = Path(..., ge=1, le=9999),
+    month: int = Path(..., ge=1, le=12),
+):
     """HTMX fragment: returns calendar HTML for a given month."""
-    if month < 1 or month > 12:
-        month = date.today().month
     active_dates = set(_get_cached_training_dates())
     day_intensity = _compute_day_intensities()
     cal_data = _build_calendar(year, month, active_dates, day_intensity)
@@ -307,6 +309,8 @@ def _cardio_summary(trains: list[dict]) -> dict:
 @router.get("/training/{dt}", response_class=HTMLResponse)
 async def training_detail_fragment(request: Request, dt: str):
     """HTMX fragment: returns training detail for a given date."""
+    if not is_training_date(dt):
+        raise HTTPException(status_code=422, detail="训练日期须为有效的 YYYY-MM-DD 日期")
     ds = get_data_service()
     try:
         data = await ds.get_training(dt, full=True)
