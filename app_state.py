@@ -6,7 +6,7 @@ from api_client import XunjiAPIClient
 from cache import Cache
 from config import XunjiConfig
 from data_service import DataService
-from analysis import iter_movement_sets
+from analysis import iter_movement_sets, training_is_unfinished
 
 BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -18,6 +18,7 @@ jinja_env = Environment(
     autoescape=select_autoescape(("html", "xml")),
 )
 jinja_env.globals["iter_movement_sets"] = iter_movement_sets
+jinja_env.globals["training_is_unfinished"] = training_is_unfinished
 
 _config = None
 _cache = None

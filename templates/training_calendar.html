@@ -19,8 +19,10 @@
             {% if d.day == 0 %}
             <td class="cal-empty"></td>
             {% else %}
-            {% if d.has_data %}
+            {% if d.has_data and not d.is_unfinished %}
             <td class="cal-day cal-has-data cal-load-{{ 3 if d.intensity >= 0.67 else 2 if d.intensity >= 0.34 else 1 }}{% if d.is_today %} cal-today{% endif %}"
+            {% elif d.is_unfinished %}
+            <td class="cal-day cal-has-data{% if d.is_today %} cal-today{% endif %}" title="仅未完成记录，不计训练统计"
             {% elif d.is_today %}
             <td class="cal-day cal-today"
             {% else %}
@@ -31,7 +33,7 @@
                 hx-swap="innerHTML"
                 hx-trigger="click, keyup[key=='Enter']"
                 role="button" tabindex="0" data-date="{{ d.date_str }}"
-                aria-label="{{ d.date_str }}{% if d.has_data %} 有训练记录{% else %} 无训练记录{% endif %}">
+                aria-label="{{ d.date_str }}{% if d.is_unfinished %} 仅未完成记录{% elif d.has_data %} 有训练记录{% else %} 无训练记录{% endif %}">
                 {{ d.day }}
             </td>
             {% endif %}

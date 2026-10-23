@@ -2,7 +2,7 @@
 
 from typing import Any, Optional
 from datetime import date, timedelta
-from analysis import classify_bodypart, iter_movement_sets, movement_is_unfinished
+from analysis import classify_bodypart, iter_movement_sets, movement_is_unfinished, training_is_unfinished
 
 
 DEFAULT_PLAN_PREFERENCES = {
@@ -156,6 +156,7 @@ def generate_plan(
     reference_date = reference_date or date.today()
     preferences = normalize_plan_preferences(preferences)
     readiness = _assess_recovery(recovery)
+    trains = [train for train in trains if not training_is_unfinished(train)]
     if not trains:
         return {
             "groups": [],
@@ -167,7 +168,7 @@ def generate_plan(
             "recommendation": {
                 "action": readiness["action"],
                 "intensity": readiness["intensity"],
-                "reason": "暂无训练记录",
+                "reason": "暂无可计入统计的训练记录",
             },
         }
 

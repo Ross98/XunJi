@@ -18,6 +18,8 @@ from analysis import (
     session_metrics,
     summarize_set_metrics,
     iter_movement_sets,
+    training_is_unfinished,
+    movement_is_unfinished,
 )
 from movements_cn import apply_movement_cn_to_trains
 from training_charts import build_chart_ranges, select_training_window
@@ -162,6 +164,16 @@ def _get_cached_training_dates() -> list[str]:
     return sorted(day for day in days if day and extract_trains(get_cached_training(cache, day)))
 
 
+def _get_unfinished_training_dates(dates: set[str]) -> set[str]:
+    cache = get_cache()
+    result = set()
+    for day in dates:
+        trains = extract_trains(get_cached_training(cache, day))
+        if trains and all(training_is_unfinished(train) for train in trains):
+            result.add(day)
+    return result
+
+
 
 def _merge_overlapping_trains(trains: list[dict]) -> list[dict]:
     """Merge training sessions that overlap in time (within 15 min gap).
@@ -193,7 +205,8 @@ def _merge_overlapping_trains(trains: list[dict]) -> list[dict]:
         same_date = current.get("datestr") == t.get("datestr")
         current_bounds, incoming_bounds = session_bounds(current), session_bounds(t)
         gap = incoming_bounds[0] - current_bounds[1] if current_bounds and incoming_bounds else None
-        if gap is not None and same_date and gap < 15 * 60 * 1000 and compatible:
+        eligible_merge = not training_is_unfinished(current) and not training_is_unfinished(t)
+        if gap is not None and same_date and eligible_merge and gap < 15 * 60 * 1000 and compatible:
             current["end"] = max(current.get("end", 0), t.get("end", 0))
             current["start"] = min(current.get("start", 0), t.get("start", 0))
             current["movements"] = current.get("movements", []) + t.get("movements", [])
@@ -219,6 +232,8 @@ def _compute_day_intensities() -> dict[str, float]:
         trains = extract_trains(cached)
         score = 0.0
         for train in trains:
+            if training_is_unfinished(train):
+                continue
             bounds = session_bounds(train)
             dur = (bounds[1] - bounds[0]) / 60000 if bounds else 0
             cal = session_metrics(train)["calories"]
@@ -229,12 +244,14 @@ def _compute_day_intensities() -> dict[str, float]:
     return {d: round(v / max_s, 2) for d, v in raw.items()}
 
 
-def _build_calendar(year: int, month: int, active_dates: set[str], intensities: dict[str, float] | None = None) -> dict:
+def _build_calendar(year: int, month: int, active_dates: set[str], intensities: dict[str, float] | None = None,
+                    unfinished_dates: set[str] | None = None) -> dict:
     """Build calendar grid data for a month.
     Returns dict with year, month, month_name, weeks (list of weeks),
     where each week is a list of day dicts with keys: day, has_data, is_today.
     """
     cal = calendar.Calendar()
+    unfinished_dates = unfinished_dates or set()
     month_days = cal.monthdays2calendar(year, month)
     today_str = date.today().isoformat()
 
@@ -250,6 +267,7 @@ def _build_calendar(year: int, month: int, active_dates: set[str], intensities: 
                     "day": day_num,
                     "date_str": ds,
                     "has_data": ds in active_dates,
+                    "is_unfinished": ds in unfinished_dates,
                     "is_today": ds == today_str,
                     "intensity": intensities.get(ds, 0) if intensities else 0,
                 })
@@ -291,7 +309,7 @@ async def training_calendar_fragment(
     """HTMX fragment: returns calendar HTML for a given month."""
     active_dates = set(_get_cached_training_dates())
     day_intensity = _compute_day_intensities()
-    cal_data = _build_calendar(year, month, active_dates, day_intensity)
+    cal_data = _build_calendar(year, month, active_dates, day_intensity, _get_unfinished_training_dates(active_dates))
     env = get_jinja_env()
     tmpl = env.get_template("training_calendar.html")
     return HTMLResponse(tmpl.render(request=request, cal=cal_data))
@@ -335,7 +353,7 @@ async def training_detail_fragment(request: Request, dt: str):
         summary=summary,
         trains=trains,
         date_str=dt,
-        session_count=len(trains),
+        session_count=sum(not training_is_unfinished(train) for train in trains),
         previous_date=previous_date,
         next_date=next_date,
         cardio_summary=_cardio_summary(trains),
@@ -352,7 +370,7 @@ async def training_page(request: Request):
     # Calendar data from the cache currently available
     active_dates = set(_get_cached_training_dates())
     day_intensity = _compute_day_intensities()
-    cal_data = _build_calendar(today.year, today.month, active_dates, day_intensity)
+    cal_data = _build_calendar(today.year, today.month, active_dates, day_intensity, _get_unfinished_training_dates(active_dates))
 
     # Today's training detail
     today_data = {}
@@ -386,7 +404,7 @@ async def training_page(request: Request):
     freq_counts: dict[str, int] = {}
     for t in all_trains:
         d = t.get("datestr", "")
-        if d:
+        if d and not training_is_unfinished(t):
             freq_counts[d] = freq_counts.get(d, 0) + 1
     freq_stats = compute_frequency_stats(freq_counts, today=today)
 
@@ -396,7 +414,7 @@ async def training_page(request: Request):
         mov.get("name", "")
         for train in all_trains
         for mov in train.get("movements", [])
-        if mov.get("name")
+        if mov.get("name") and not movement_is_unfinished(mov)
     ) - EXCLUDED_MOVEMENTS)
     movement_options = [
         {"name": name, "group": classify_bodypart(name)}
@@ -410,6 +428,7 @@ async def training_page(request: Request):
         cal=cal_data,
         date_str=today_str,
         trains=today_trains,
+        session_count=sum(not training_is_unfinished(train) for train in today_trains),
         summary=today_summary,
         cardio_summary=_cardio_summary(today_trains),
         volume_data=vol_data,

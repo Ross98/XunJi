@@ -17,7 +17,7 @@ from data_service import (
     extract_trains as _extract_trains,
     extract_body_records as _extract_body_records,
 )
-from analysis import summarize_training, summarize_body, body_latest, training_time_coverage
+from analysis import summarize_training, summarize_body, body_latest, training_time_coverage, training_is_unfinished
 from routes.training import _merge_overlapping_trains
 from sleep_stats import confirmed_sleep_minutes
 from activity_stats import daily_activity_totals, confirmed_activity_average
@@ -150,6 +150,8 @@ def _get_cached_training_dates(cache, end_date: str, days: int = 14) -> set[str]
         current = (end - timedelta(days=offset)).isoformat()
         cached = get_cached_training(cache, current)
         for train in _extract_trains(cached):
+            if training_is_unfinished(train):
+                continue
             training_date = train.get("datestr")
             if training_date:
                 training_dates.add(training_date)
@@ -203,13 +205,16 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
     training_data = await _get_training_or_empty(ds, yesterday)
     trains = _merge_overlapping_trains(_extract_trains(training_data))
     summary = summarize_training(trains)
-    training_sessions = len(trains)
+    training_sessions = sum(not training_is_unfinished(train) for train in trains)
+    training_unfinished_sessions = len(trains) - training_sessions
     training_time = training_time_coverage(trains)
 
     # 训练类型标签 & set 数
     all_types = set()
     total_sets = summary["total_sets"]
     for t in trains:
+        if training_is_unfinished(t):
+            continue
         for m in t.get("movements", []) + t.get("_cardio_movements", []):
             mt = m.get("type") or ""
             if not mt or mt[0].islower():
@@ -421,6 +426,7 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
         "latest_weight_date": latest_weight_date,
         "latest_weight_source": latest_weight_source,
         "training_sessions": training_sessions,
+        "training_unfinished_sessions": training_unfinished_sessions,
         "training_minutes": training_time["minutes"],
         "training_duration_incomplete": training_time["incomplete"],
     }

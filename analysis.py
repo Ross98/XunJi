@@ -37,6 +37,15 @@ def movement_is_unfinished(movement: dict) -> bool:
             and next(iter_movement_sets(movement), None) is None)
 
 
+def training_is_unfinished(train: dict) -> bool:
+    """Exclude only sessions whose movements all explicitly remain unfinished."""
+    movements = list(train.get("movements") or [])
+    preserved = train.get("_cardio_movements")
+    if isinstance(preserved, list):
+        movements.extend(preserved)
+    return bool(movements) and all(movement_is_unfinished(movement) for movement in movements)
+
+
 def _total_volume_for_movement(movement: dict) -> float:
     return sum(
         _safe_float(s.get("weight", s.get("weight_kg", 0))) * _safe_float(s.get("reps", 0))
@@ -85,7 +94,7 @@ def summarize_training(trains: list[dict]) -> dict:
 
     for train in trains:
         d = train.get("datestr", "")
-        if d:
+        if d and not training_is_unfinished(train):
             dates.add(d)
         for mov in train.get("movements", []):
             total_volume += _total_volume_for_movement(mov)
@@ -330,6 +339,8 @@ def training_frequency_by_date(trains: list[dict]) -> list[str]:
     from datetime import datetime
     dates: set[str] = set()
     for train in trains:
+        if training_is_unfinished(train):
+            continue
         d = train.get("datestr", "")
         if d:
             dates.add(d)
@@ -362,6 +373,7 @@ def session_bounds(train: dict) -> Optional[tuple[float, float]]:
 
 def training_time_coverage(trains: list[dict]) -> dict:
     """Observed clock-time coverage, with overlapping sessions counted once."""
+    trains = [train for train in trains if not training_is_unfinished(train)]
     intervals = [bounds for train in trains if (bounds := session_bounds(train)) is not None]
     incomplete = len(intervals) < len(trains)
     if not intervals:
@@ -433,6 +445,8 @@ def training_duration_trend(trains: list[dict]) -> list[dict]:
     """Extract observed training duration in minutes, excluding invalid intervals."""
     records = []
     for train in trains:
+        if training_is_unfinished(train):
+            continue
         bounds = session_bounds(train)
         if bounds:
             records.append({"date": train.get("datestr", ""),

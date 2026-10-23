@@ -25,6 +25,8 @@ def movement(kind='weight'):
     ([{'start': 0, 'end': 120000, 'movements': []}], 1, 2, False),
     ([{'start': True, 'end': 120000, 'movements': []}], 1, None, True),
     ([{'start': 0, 'end': 600, 'movements': []}], 1, .01, False),
+    ([{'start': 0, 'end': 3600000, 'movements': [
+        {'name': '卧推', 'sets': [{'done': False, 'weight': 50, 'reps': 10}]}]}], 0, None, False),
 ])
 def test_dashboard_training_matches_session_grouping_and_observed_time(
     records, expected_count, minutes, incomplete, monkeypatch, isolated_health_db, tmp_cache
@@ -63,7 +65,9 @@ def test_dashboard_training_matches_session_grouping_and_observed_time(
     assert context['training_minutes'] == minutes
     assert context['training_duration_incomplete'] is incomplete
     html = response.body.decode()
-    if minutes is None:
+    if expected_count == 0:
+        assert '未完成记录，不计统计' in html
+    elif minutes is None:
         assert '时长未确认' in html
     elif incomplete:
         assert '已知覆盖' in html

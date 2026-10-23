@@ -5,10 +5,14 @@
         {% if next_date %}<button class="btn-nav" hx-get="/training/{{ next_date }}" hx-target="#training-detail" hx-swap="innerHTML">下一训练日 →</button>{% endif %}
     </span>
 </div>
-{% if summary.total_days > 0 %}
+{% if trains %}
 <div class="detail-summary">
+    {% if session_count|default(trains|length) == 0 %}
+    <div class="stat"><div class="stat-value">0</div><div class="stat-label">计入统计场次</div></div>
+    <p style="color:var(--text-muted);">仅有未完成记录，以下记录保留供查看。</p>
+    {% else %}
     <div class="grid-3" style="margin-bottom:12px;">
-        <div class="stat"><div class="stat-value">{{ session_count|default(trains|length) }}</div><div class="stat-label">训练场次</div></div>
+        <div class="stat"><div class="stat-value">{{ session_count|default(trains|length) }}</div><div class="stat-label">计入统计场次</div></div>
         {% if summary.total_volume > 0 %}
         <div class="stat"><div class="stat-value">{{ summary.total_sets }}</div><div class="stat-label">总组数</div></div>
         <div class="stat"><div class="stat-value">{{ "%.0f"|format(summary.total_volume) }}</div><div class="stat-label">总容量 (kg)</div></div>
@@ -17,9 +21,11 @@
         <div class="stat"><div class="stat-value">{{ cardio_summary.calories|default('--') }}</div><div class="stat-label">活动能量 (kcal)</div></div>
         {% endif %}
     </div>
+    {% endif %}
     {% for train in trains %}
-    <div style="margin-bottom:12px;padding:10px;background:#f9f9f9;border-radius:6px;">
+    <div style="margin-bottom:12px;padding:10px;background:var(--surface-subtle);border-radius:6px;">
         <strong>{{ train.title or "无标题训练" }}</strong>
+        {% if training_is_unfinished(train) %}<span style="color:var(--text-muted);"> · 未完成记录，不计统计</span>{% endif %}
         {% if train.get("_cardio_metrics", {}).get("calories") %}
         <div style="color:var(--text-muted);font-size:12px;margin-top:4px;">
             {% set cm = train._cardio_metrics %}
