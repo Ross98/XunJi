@@ -208,6 +208,11 @@ def _build_body_table(body_mass: list[dict], body_fat: list[dict], max_rows: int
 @router.get("/health", response_class=HTMLResponse)
 async def health_page(request: Request):
     """健康数据总览页面"""
+    return await run_in_threadpool(_render_health_page, request)
+
+
+def _render_health_page(request: Request):
+    """Read SQLite and render together without blocking other requests."""
     env = get_jinja_env()
     tmpl = env.get_template("health.html")
     stats = ah.get_import_count()
@@ -404,12 +409,12 @@ async def stop_health_background_tasks() -> None:
 
 @router.get("/health/data")
 async def health_data(
-    metric: str = Query("HeartRateVariabilitySDNN"),
+    metric: str = Query("HKQuantityTypeIdentifierHeartRateVariabilitySDNN"),
     start: str = Query(None),
     end: str = Query(None),
-    limit: int = Query(100),
+    limit: int = Query(100, ge=1, le=1000),
 ):
-    records = ah.query_records(metric, start, end, limit)
+    records = await run_in_threadpool(ah.query_records, metric, start, end, limit)
     return {"data": records}
 
 
@@ -418,7 +423,7 @@ async def health_workouts(
     activity: str = Query(None),
     start: str = Query(None),
     end: str = Query(None),
-    limit: int = Query(50),
+    limit: int = Query(50, ge=1, le=1000),
 ):
-    recs = ah.query_workouts(activity, start, end, limit)
+    recs = await run_in_threadpool(ah.query_workouts, activity, start, end, limit)
     return {"data": recs}
