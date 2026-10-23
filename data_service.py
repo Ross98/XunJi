@@ -14,7 +14,7 @@ from training_records import training_records_view
 
 
 @dataclass
-class _BodyRequest:
+class _ReadRequest:
     task: asyncio.Task
     waiters: int = 0
 
@@ -117,7 +117,8 @@ class DataService:
         self._cache = cache
         self._client = api_client
         self._training_attempts = {}
-        self._body_requests: dict[tuple[str, Optional[int]], _BodyRequest] = {}
+        self._training_requests: dict[tuple[str, Optional[int]], _ReadRequest] = {}
+        self._body_requests: dict[tuple[str, Optional[int]], _ReadRequest] = {}
         self._closing = False
 
     # ── Training ──
@@ -147,12 +148,18 @@ class DataService:
         return _valid_training_response(data)
 
     async def get_training(self, date: str, full: bool = False, *, force_refresh: bool = False) -> dict:
+        if self._closing:
+            raise RuntimeError("Data service is closed")
         cache_key = f"training:{date}:{full}"
         cached, cached_mode = resolve_training_cache(self._cache, date)
         needs_full = full and cached_mode is False and bool(extract_trains(cached))
         if self._is_valid_training_response(cached) and not force_refresh and not needs_full:
             return cached
         generation = self._cache_generation()
+        return await self._shared_read(self._training_requests, (cache_key, generation),
+            lambda: self._load_training(cache_key, date, full, cached, generation))
+
+    async def _load_training(self, cache_key, date, full, cached, generation):
         now = monotonic()
         self._training_attempts = {key: started for key, started in self._training_attempts.items()
                                    if now - started < 30}
@@ -262,19 +269,25 @@ class DataService:
             return cached
         generation = self._cache_generation()
         request_key = (cache_key, generation)
-        pending = self._body_requests.get(request_key)
+        return await self._shared_read(self._body_requests, request_key,
+            lambda: self._load_body_history(
+                cache_key, start_date, end_date, types, limit, cached, complete_cache, generation))
+
+    @staticmethod
+    async def _shared_read(requests, request_key, load):
+        """Share a read; only its final departing waiter may cancel the work."""
+        pending = requests.get(request_key)
         if pending is None:
-            pending = _BodyRequest(asyncio.create_task(self._load_body_history(
-                cache_key, start_date, end_date, types, limit, cached, complete_cache, generation)))
-            self._body_requests[request_key] = pending
+            pending = _ReadRequest(asyncio.create_task(load()))
+            requests[request_key] = pending
         pending.waiters += 1
         try:
             return await asyncio.shield(pending.task)
         finally:
             pending.waiters -= 1
             if pending.waiters == 0:
-                if self._body_requests.get(request_key) is pending:
-                    del self._body_requests[request_key]
+                if requests.get(request_key) is pending:
+                    del requests[request_key]
                 if not pending.task.done():
                     pending.task.cancel()
                     await asyncio.gather(pending.task, return_exceptions=True)
@@ -306,11 +319,13 @@ class DataService:
 
     async def close(self):
         self._closing = True
-        tasks = [pending.task for pending in self._body_requests.values()]
+        tasks = [pending.task for requests in (self._training_requests, self._body_requests)
+                 for pending in requests.values()]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         self._body_requests.clear()
+        self._training_requests.clear()
         await self._client.close()
 
 
