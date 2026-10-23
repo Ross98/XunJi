@@ -197,8 +197,13 @@ def _health_number(value, scale=1):
 
 def _health_metric_records(metric, start, end):
     # Keep missing sample positions and dates; only sanitize the display copy.
-    return [dict(row, value=_health_number(row.get("value")))
-            for row in ah.query_records_desc(metric, start, end, limit=30)]
+    return _health_numeric_rows(ah.query_records_desc(metric, start, end, limit=30), ("value",))
+
+
+def _health_numeric_rows(records, fields):
+    """Copy measurement fields into JSON-safe values without changing stored rows."""
+    return [dict(row, **{field: _health_number(row[field]) for field in fields if field in row})
+            for row in records]
 
 
 def _format_health_value(records, precision=0, scale=1):
@@ -439,7 +444,7 @@ async def health_data(
     limit: int = Query(100, ge=1, le=1000),
 ):
     records = await run_in_threadpool(ah.query_records, metric, start, end, limit)
-    return {"data": records}
+    return {"data": _health_numeric_rows(records, ("value",))}
 
 
 @router.get("/health/workouts")
@@ -450,4 +455,4 @@ async def health_workouts(
     limit: int = Query(50, ge=1, le=1000),
 ):
     recs = await run_in_threadpool(ah.query_workouts, activity, start, end, limit)
-    return {"data": recs}
+    return {"data": _health_numeric_rows(recs, ("duration", "total_distance", "total_energy_burned"))}
