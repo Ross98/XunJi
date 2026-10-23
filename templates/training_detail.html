@@ -29,31 +29,29 @@
         {% if train.get("_cardio_metrics", {}).get("calories") %}
         <div style="color:var(--text-muted);font-size:12px;margin-top:4px;">
             {% set cm = train._cardio_metrics %}
-            {{ "%.0f"|format(cm.total_duration_min|float if cm.total_duration_min else 0) }}分钟 ·
+            整场覆盖 {{ "%.0f"|format(cm.total_duration_min|float if cm.total_duration_min else 0) }}分钟 ·
             {% if cm.calories %}{{ "%.0f"|format(cm.calories|float) }}kcal{% endif %}
             {% if cm.avgHeartRate or cm.maxHeartRate %} · 平均 {{ "%.0f"|format(cm.avgHeartRate|float) if cm.avgHeartRate else '--' }} · 最高 {{ "%.0f"|format(cm.maxHeartRate|float) if cm.maxHeartRate else '--' }} bpm{% endif %}
         </div>
         {% endif %}
         {% if train.note and train.note.text %}<span style="color:#666;font-size:12px;margin-left:6px;">{{ train.note.text }}</span>{% endif %}
-        {% for mov in train.movements %}
+        {% set displayed = namespace(movements=[]) %}
+        {% for source in [train.get('movements'), train.get('_cardio_movements')] %}
+            {% if source is sequence and source is not string and source is not mapping %}
+                {% set displayed.movements = displayed.movements + (source|select('mapping')|list) %}
+            {% endif %}
+        {% endfor %}
+        {% for mov in displayed.movements %}
         <div class="movement-detail">
             {% if train.movements|length > 1 or train.title != mov.name %}<span style="font-weight:500;">{{ mov.name }}</span>{% endif %}
             {% if mov.difficulty %}<span style="color:var(--text-muted);font-size:13px;">({{ mov.difficulty }})</span>{% endif %}
             <div class="movement-sets">
-            {% if mov.get("exetype", "") == "cardio" and mov.sets and mov.sets[0].calories %}
-                {% set cs = mov.sets[0] %}
-                {% if cs.done is sameas false %}<span>未完成 · </span>{% endif %}
-                {% set mins = (cs.time|int / 60)|round %}
-                <span>{{ mins }}分钟</span>
-                {% if cs.distance and cs.distance != "0" and cs.distance != "0.00" %}
-                <span> · {{ cs.distance }}km</span>
-                {% endif %}
-                {% if cs.calories and cs.calories != "0" %}
-                <span> · {{ "%.0f"|format(cs.calories|float) }}kcal</span>
-                {% endif %}
-                {% if cs.avgHeartRate or cs.maxHeartRate %}
-                <span> · 平均 {{ "%.0f"|format(cs.avgHeartRate|float) if cs.avgHeartRate else '--' }} · 最高 {{ "%.0f"|format(cs.maxHeartRate|float) if cs.maxHeartRate else '--' }} bpm</span>
-                {% endif %}
+            {% if mov.get("exetype", "") == "cardio" %}
+                <div class="set-table" style="font-size:14px;">
+                {% for s in iter_movement_sets(mov, include_unfinished=true) %}
+                {% set segment_index = loop.index %}{% include "training_cardio_segment.html" %}
+                {% else %}<span>无分段记录</span>{% endfor %}
+                </div>
             {% else %}
                 <div class="set-table">
                 {% for s in iter_movement_sets(mov, include_unfinished=true) %}<div class="set-row"><b>第{{ loop.index }}组{% if s.done is sameas false %} · 未完成{% endif %}</b><span>

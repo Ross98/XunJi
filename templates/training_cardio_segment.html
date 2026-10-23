@@ -1,0 +1,31 @@
+{# Display-only numeric projection: retain zero, aliases and nested metrics. #}
+{% set cs = {} %}
+{% for field, aliases in [
+    ('duration_s', ['time', 'workoutTime', 'duration_s']),
+    ('distance', ['distance']), ('calories', ['calories']),
+    ('avgHeartRate', ['avgHeartRate']), ('maxHeartRate', ['maxHeartRate'])
+] %}
+    {% set metric = namespace(value=none) %}
+    {% for source in [s, s.get('metrics') if s.get('metrics') is mapping else {}] %}
+        {% for alias in aliases %}
+            {% set raw = source.get(alias) %}
+            {% set number = raw|string|float(none) %}
+            {% if metric.value is none and raw is not sameas true and raw is not sameas false
+                  and number is not none and number == number and 0 <= number <= 1.7976931348623157e308
+                  and (field not in ['avgHeartRate', 'maxHeartRate'] or number > 0) %}
+                {% set metric.value = number %}
+            {% endif %}
+        {% endfor %}
+    {% endfor %}
+    {% set _ = cs.update({field: metric.value}) %}
+{% endfor %}
+<div class="set-row"><b>第{{ segment_index }}段{% if s.done is sameas false %} · 未完成{% endif %}</b><span>
+    {% if cs.duration_s is not none %}{{ "%g"|format(cs.duration_s / 60) }}分钟{% endif %}
+    {% if cs.distance is not none %}{% if cs.duration_s is not none %} · {% endif %}{{ "%g"|format(cs.distance) }}km{% endif %}
+    {% if cs.calories is not none %}{% if cs.duration_s is not none or cs.distance is not none %} · {% endif %}{{ "%g"|format(cs.calories) }}kcal{% endif %}
+    {% if cs.avgHeartRate is not none or cs.maxHeartRate is not none %}
+        {% if cs.duration_s is not none or cs.distance is not none or cs.calories is not none %} · {% endif %}
+        平均 {{ "%.0f"|format(cs.avgHeartRate) if cs.avgHeartRate is not none else '--' }} · 最高 {{ "%.0f"|format(cs.maxHeartRate) if cs.maxHeartRate is not none else '--' }} bpm
+    {% endif %}
+    {% if cs.values()|select('ne', none)|list|length == 0 %}指标未记录{% endif %}
+</span></div>
