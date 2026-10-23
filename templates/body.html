@@ -89,19 +89,21 @@
     <div class="card">
         <div class="stat">
             <div class="stat-value">{{ bmi if bmi is not none else "--" }}</div>
-            <div class="stat-label">BMI <span onclick="toggleHeightEdit()" style="cursor:pointer;font-size:18px;color:#1a1a2e;margin-left:6px;font-weight:bold;">✏</span></div>
+            <div class="stat-label">BMI <button id="heightToggle" type="button" class="btn-range" onclick="toggleHeightEdit()" aria-expanded="false" aria-controls="heightEdit" style="margin-left:6px;font-size:14px;">修改身高</button></div>
             {% if bmi is not none %}
             <div style="font-size:13px;color:var(--text-muted);margin-top:2px;">
                 {% if bmi < 18.5 %}偏瘦{% elif bmi < 24 %}正常{% elif bmi < 28 %}偏胖{% else %}肥胖{% endif %}
             </div>
             {% endif %}
-            <div id="heightEdit" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid #eee;">
-                <span style="font-size:12px;color:var(--text-muted);">身高</span>
-                <input type="number" id="heightInput" value="{{ height_cm }}" min="100" max="250" step="0.1" style="width:70px;margin:0 4px;padding:4px 6px;font-size:13px;border:1px solid #ddd;border-radius:4px;">
-                <span style="font-size:12px;color:var(--text-muted);margin-right:6px;">cm</span>
-                <button onclick="saveHeight()" class="btn btn-primary" style="padding:4px 10px;font-size:12px;">保存</button>
-                <button onclick="cancelHeightEdit()" style="padding:4px 10px;font-size:12px;border:1px solid #ddd;border-radius:4px;background:#fff;cursor:pointer;">取消</button>
-            </div>
+            <form id="heightEdit" onsubmit="event.preventDefault(); saveHeight();" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-color);">
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:14px;">
+                    <label for="heightInput">身高 (cm)</label>
+                    <input type="number" id="heightInput" value="{{ height_cm }}" min="100" max="250" step="0.1" required style="width:82px;padding:4px 6px;font-size:14px;">
+                    <button id="heightSave" type="submit" class="btn btn-primary" style="padding:4px 10px;font-size:14px;">保存</button>
+                    <button id="heightCancel" type="button" onclick="cancelHeightEdit()" class="btn-range" style="font-size:14px;">取消</button>
+                </div>
+                <p id="heightStatus" class="inline-state" style="font-size:14px;color:var(--text-primary);overflow-wrap:anywhere;" role="status" aria-live="polite" hidden></p>
+            </form>
         </div>
     </div>
     <div class="card">
@@ -340,32 +342,67 @@ document.querySelectorAll('.metric-toggle').forEach(button => button.addEventLis
 }));
 </script>
 <script>
-function toggleHeightEdit() {
-    var el = document.getElementById('heightEdit');
-    if (!el) return;
-    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+let _heightSaving = false;
+function setHeightStatus(text, error = false) {
+    const status = document.getElementById('heightStatus');
+    status.textContent = text;
+    status.hidden = !text;
+    status.setAttribute('role', error ? 'alert' : 'status');
 }
-function saveHeight() {
-    var h = Number(document.getElementById('heightInput').value);
-    if (!Number.isFinite(h) || h < 100 || h > 250) {
-        showGlobalToast('请输入100–250 cm之间的身高', 'error');
+function setHeightSaving(saving) {
+    _heightSaving = saving;
+    document.getElementById('heightEdit').setAttribute('aria-busy', String(saving));
+    ['heightInput', 'heightSave', 'heightCancel', 'heightToggle'].forEach(id => {
+        document.getElementById(id).disabled = saving;
+    });
+}
+function toggleHeightEdit() {
+    if (_heightSaving) return;
+    const panel = document.getElementById('heightEdit');
+    if (panel.style.display !== 'none') {
+        cancelHeightEdit();
         return;
     }
-    fetch('/body/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({height_cm: h})
-    }).then(function(response) {
-        if (!response.ok) throw new Error('服务器返回 '+response.status);
-        return response.json();
-    }).then(function(result) {
-        if (result.status !== 'ok') throw new Error(result.message || '保存失败');
-        showGlobalToast('身高已保存');
-        setTimeout(function(){ location.reload(); }, 400);
-    }).catch(function(error) { showGlobalToast('保存失败：'+error.message, 'error'); });
+    panel.style.display = 'block';
+    document.getElementById('heightToggle').setAttribute('aria-expanded', 'true');
+    document.getElementById('heightInput').focus();
+}
+async function saveHeight() {
+    if (_heightSaving) return;
+    const h = Number(document.getElementById('heightInput').value);
+    if (!Number.isFinite(h) || h < 100 || h > 250) {
+        setHeightStatus('请输入100–250 cm之间的身高。', true);
+        return;
+    }
+    setHeightSaving(true);
+    setHeightStatus('正在保存身高…');
+    try {
+        const response = await fetch('/body/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({height_cm: h})
+        });
+        if (!response.ok) throw new Error('服务器返回 ' + response.status);
+        const result = await response.json();
+        if (!result || result.status !== 'ok') {
+            throw new Error(result && typeof result.message === 'string' ? result.message : '服务器未确认保存');
+        }
+        setHeightStatus('身高已保存，正在更新页面…');
+        setTimeout(() => location.reload(), 400);
+    } catch (error) {
+        setHeightSaving(false);
+        setHeightStatus('保存失败：' + (error && error.message || '请稍后重试') + '。可保留输入重试。', true);
+    }
 }
 function cancelHeightEdit() {
+    if (_heightSaving) return;
+    const input = document.getElementById('heightInput');
+    input.value = input.defaultValue;
+    setHeightStatus('');
     document.getElementById('heightEdit').style.display = 'none';
+    const toggle = document.getElementById('heightToggle');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.focus();
 }
 
 const historyRows = [...document.querySelectorAll('.body-history-row')];
