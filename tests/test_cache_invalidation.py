@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from cache import Cache
 from data_service import DataService
 
@@ -123,3 +125,108 @@ def test_old_training_response_cannot_overwrite_new_generation(tmp_cache):
         assert tmp_cache.get(f'training:{END}:False') == new
 
     asyncio.run(asyncio.wait_for(run(), timeout=2))
+
+
+def test_conditional_delete_preserves_new_payload_in_same_generation(tmp_path):
+    first = Cache(str(tmp_path / 'cache.sqlite'))
+    writer = Cache(str(tmp_path / 'cache.sqlite'))
+    broken = {'records': 'bad'}
+    first.set(KEY, broken)
+    generation = first.get_generation()
+    writer.set(KEY, NEW)
+    assert not first.delete_if_unchanged(KEY, broken, generation)
+    assert writer.get(KEY) == NEW
+
+
+def test_conditional_delete_cannot_cross_cache_clear(tmp_path):
+    first = Cache(str(tmp_path / 'cache.sqlite'))
+    writer = Cache(str(tmp_path / 'cache.sqlite'))
+    broken = {'records': 'bad'}
+    first.set(KEY, broken)
+    generation = first.get_generation()
+    writer.clear(preserve_system=True)
+    writer.set(KEY, broken)
+    assert not first.delete_if_unchanged(KEY, broken, generation)
+    assert writer.get(KEY) == broken
+    assert first.delete_if_unchanged(KEY, broken, writer.get_generation())
+    assert writer.get(KEY) is None
+    assert not first.delete_if_unchanged(KEY, broken, writer.get_generation())
+
+
+@pytest.mark.parametrize("outcome", ["failure", "success"])
+def test_paused_invalid_body_reader_cannot_delete_post_clear_result(tmp_cache, monkeypatch, outcome):
+    async def run():
+        entered, release = asyncio.Event(), asyncio.Event()
+        tmp_cache.set(KEY, {'records': 'bad'})
+
+        class Client:
+            async def query_body(self, *args, **kwargs):
+                if outcome == 'failure':
+                    raise RuntimeError('old query failed')
+                return OLD
+
+        service = DataService(tmp_cache, Client())
+        original = service._load_body_history
+
+        async def paused(*args):
+            entered.set()
+            await release.wait()
+            return await original(*args)
+
+        monkeypatch.setattr(service, '_load_body_history', paused)
+        reader = asyncio.create_task(service.get_body(START, END))
+        await entered.wait()
+        tmp_cache.clear(preserve_system=True)
+        tmp_cache.set(KEY, NEW)
+        tmp_cache.set('_xunji_refresh_time', MARKER)
+        release.set()
+        results = await asyncio.gather(reader, return_exceptions=True)
+        if outcome == 'failure':
+            assert isinstance(results[0], RuntimeError)
+        else:
+            assert results == [OLD]
+        assert tmp_cache.get(KEY) == NEW
+        assert tmp_cache.get('_xunji_refresh_time') == MARKER
+
+    asyncio.run(asyncio.wait_for(run(), 2))
+
+
+@pytest.mark.parametrize('clear', [False, True])
+def test_training_cleanup_preserves_snapshot_replaced_after_validation_read(tmp_cache, monkeypatch, clear):
+    key = f'training:{END}:False'
+    broken = {'res': {'trains': None}}
+    fresh = {'trains': [{'datestr': END, 'title': 'new snapshot'}]}
+    tmp_cache.set(key, broken)
+    writer = Cache(tmp_cache._db_path)
+    original_get = tmp_cache.get
+    armed = False
+
+    def racing_get(cache_key):
+        nonlocal armed
+        snapshot = original_get(cache_key)
+        if armed and cache_key == key:
+            armed = False
+            if clear:
+                writer.clear(preserve_system=True)
+            writer.set(key, fresh)
+            writer.set('_xunji_refresh_time', MARKER)
+        return snapshot
+
+    class Client:
+        async def fetch_training(self, *args):
+            raise RuntimeError('old query failed')
+
+    service = DataService(tmp_cache, Client())
+    original_load = service._load_training
+
+    async def load(*args):
+        nonlocal armed
+        armed = True
+        return await original_load(*args)
+
+    monkeypatch.setattr(tmp_cache, 'get', racing_get)
+    monkeypatch.setattr(service, '_load_training', load)
+    with pytest.raises(RuntimeError, match='old query failed'):
+        asyncio.run(service.get_training(END))
+    assert writer.get(key) == fresh
+    assert writer.get('_xunji_refresh_time') == MARKER

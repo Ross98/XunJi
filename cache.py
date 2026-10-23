@@ -84,6 +84,17 @@ class Cache:
         with self._conn() as conn:
             conn.execute("DELETE FROM cache WHERE key = ?", (key,))
 
+    def delete_if_unchanged(self, key: str, expected: dict, generation: int) -> bool:
+        """Discard a bad snapshot only while its generation and stored payload match."""
+        encoded = json.dumps(expected)
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute("SELECT generation FROM cache_generation WHERE singleton=1").fetchone()[0]
+            if current != generation:
+                return False
+            deleted = conn.execute("DELETE FROM cache WHERE key=? AND data=?", (key, encoded))
+            return deleted.rowcount > 0
+
     def delete_prefix(self, prefix: str) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM cache WHERE substr(key, 1, ?) = ?", (len(prefix), prefix))

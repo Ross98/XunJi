@@ -133,6 +133,13 @@ class DataService:
         get_generation = getattr(self._cache, "get_generation", None)
         return get_generation() if callable(get_generation) else None
 
+    def _discard_invalid_cache(self, key, snapshot, generation):
+        discard = getattr(self._cache, "delete_if_unchanged", None)
+        if generation is not None and callable(discard):
+            discard(key, snapshot, generation)
+        else:
+            self._cache.delete(key)
+
     def _save_read_result(self, key: str, data: dict, generation: Optional[int]) -> None:
         commit = getattr(self._cache, "set_many_if_generation", None)
         if generation is not None and callable(commit):
@@ -170,7 +177,7 @@ class DataService:
             return cached
         exact = self._cache.get(cache_key)
         if exact is not None and not self._is_valid_training_response(exact) and not extract_trains(exact):
-            self._cache.delete(cache_key)
+            self._discard_invalid_cache(cache_key, exact, generation)
         self._training_attempts[attempt] = now
         try:
             data = await self._client.fetch_training(date, full)
@@ -342,7 +349,7 @@ class DataService:
 
     async def _load_body_history(self, cache_key, start_date, end_date, types, limit, cached, complete_cache, generation):
         if cached is not None and not self._is_valid_body_response(cached):
-            self._cache.delete(cache_key)
+            self._discard_invalid_cache(cache_key, cached, generation)
         try:
             data = await self._fetch_body_history(start_date, end_date, types, limit)
         except Exception:
