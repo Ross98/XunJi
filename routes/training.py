@@ -117,7 +117,8 @@ async def _backfill_training_history(
     end_date = today or current_time.date()
     for offset in range(days):
         training_date = (end_date - timedelta(days=offset)).isoformat()
-        if _should_skip_training_backfill(cache, training_date, current_time):
+        if await run_joined_threadpool(_should_skip_training_backfill, cache=cache,
+                                       training_date=training_date, now=current_time):
             continue
         try:
             await ds.get_training(training_date, full=True, force_refresh=True)
@@ -158,22 +159,27 @@ def _parse_date_from_cache_key(key: str) -> str | None:
     return None
 
 
-def _get_cached_training_dates() -> list[str]:
-    """Get dates with NON-EMPTY cached training data, sorted."""
+def _read_cached_training_days() -> dict[str, list[dict]]:
+    """Load each day's selected cache version once for all page projections."""
     cache = get_cache()
     days = {_parse_date_from_cache_key(key) for key in cache.keys_by_prefix("training:")}
-    return sorted(day for day in days if day and extract_trains(get_cached_training(cache, day)))
-
-
-def _get_unfinished_training_dates(dates: set[str]) -> set[str]:
-    cache = get_cache()
-    result = set()
-    for day in dates:
+    result = {}
+    for day in sorted(day for day in days if day):
         trains = extract_trains(get_cached_training(cache, day))
-        if trains and all(training_is_unfinished(train) for train in trains):
-            result.add(day)
+        if trains:
+            result[day] = trains
     return result
 
+
+def _get_cached_training_dates() -> list[str]:
+    """Get dates with NON-EMPTY cached training data, sorted."""
+    return list(_read_cached_training_days())
+
+
+def _get_unfinished_training_dates(dates: set[str], cached_days: dict[str, list[dict]] | None = None) -> set[str]:
+    cached_days = _read_cached_training_days() if cached_days is None else cached_days
+    return {day for day in dates if cached_days.get(day)
+            and all(training_is_unfinished(train) for train in cached_days[day])}
 
 
 def _merge_overlapping_trains(trains: list[dict]) -> list[dict]:
@@ -221,16 +227,11 @@ def _merge_overlapping_trains(trains: list[dict]) -> list[dict]:
     merged.append(finish(current))
     return merged
 
-def _compute_day_intensities() -> dict[str, float]:
+def _compute_day_intensities(cached_days: dict[str, list[dict]] | None = None) -> dict[str, float]:
     """Compute training intensity (0-1) per day based on duration + calories."""
-    cache = get_cache()
-    dates = _get_cached_training_dates()
+    cached_days = _read_cached_training_days() if cached_days is None else cached_days
     raw: dict[str, float] = {}
-    for d in dates:
-        cached = get_cached_training(cache, d, full=True)
-        if not cached:
-            continue
-        trains = extract_trains(cached)
+    for d, trains in cached_days.items():
         score = 0.0
         for train in trains:
             if training_is_unfinished(train):
@@ -307,10 +308,16 @@ async def training_calendar_fragment(
     year: int = Path(..., ge=1, le=9999),
     month: int = Path(..., ge=1, le=12),
 ):
-    """HTMX fragment: returns calendar HTML for a given month."""
-    active_dates = set(_get_cached_training_dates())
-    day_intensity = _compute_day_intensities()
-    cal_data = _build_calendar(year, month, active_dates, day_intensity, _get_unfinished_training_dates(active_dates))
+    """Read and render a month without blocking status or quit requests."""
+    return await run_joined_threadpool(_render_training_calendar, request=request, year=year, month=month)
+
+
+def _render_training_calendar(request: Request, year: int, month: int):
+    cached_days = _read_cached_training_days()
+    active_dates = set(cached_days)
+    day_intensity = _compute_day_intensities(cached_days)
+    cal_data = _build_calendar(year, month, active_dates, day_intensity,
+                               _get_unfinished_training_dates(active_dates, cached_days))
     env = get_jinja_env()
     tmpl = env.get_template("training_calendar.html")
     return HTMLResponse(tmpl.render(request=request, cal=cal_data))
@@ -336,6 +343,10 @@ async def training_detail_fragment(request: Request, dt: str):
     except Exception:
         logger.exception("Training detail fetch failed for %s", dt)
         data = {"res": {"trains": []}}
+    return await run_joined_threadpool(_render_training_detail, request=request, dt=dt, data=data)
+
+
+def _render_training_detail(request: Request, dt: str, data: dict):
     trains = extract_trains(data)
     trains = apply_movement_cn_to_trains(trains)
     trains = _merge_overlapping_trains(trains)
@@ -368,18 +379,25 @@ async def training_page(request: Request):
     today = date.today()
     today_str = today.isoformat()
 
-    # Calendar data from the cache currently available
-    active_dates = set(_get_cached_training_dates())
-    day_intensity = _compute_day_intensities()
-    cal_data = _build_calendar(today.year, today.month, active_dates, day_intensity, _get_unfinished_training_dates(active_dates))
-
     # Today's training detail
     today_data = {}
     try:
         today_data = await ds.get_training(today_str, full=True)
     except Exception:
         logger.exception("Today's training fetch failed for %s", today_str)
+    response = await run_joined_threadpool(_render_training_page, request=request, today=today, today_data=today_data)
     _ensure_training_history_backfill(ds, cache)
+    return response
+
+
+def _render_training_page(request: Request, today: date, today_data: dict):
+    today_str = today.isoformat()
+    # Read after today's fetch; calendar and charts share the same daily payloads.
+    cached_days = _read_cached_training_days()
+    active_dates = set(cached_days)
+    cal_data = _build_calendar(today.year, today.month, active_dates,
+                               _compute_day_intensities(cached_days),
+                               _get_unfinished_training_dates(active_dates, cached_days))
     today_trains = extract_trains(today_data)
     today_trains = apply_movement_cn_to_trains(today_trains)
     today_trains = _merge_overlapping_trains(today_trains)
@@ -390,10 +408,7 @@ async def training_page(request: Request):
     for d in sorted(active_dates):
         d_dt = datetime.strptime(d, "%Y-%m-%d").date()
         if 0 <= (today - d_dt).days < 90:
-            cached = get_cached_training(cache, d)
-            if cached:
-                cached_trains = extract_trains(cached)
-                all_trains.extend(cached_trains)
+            all_trains.extend(cached_days[d])
 
     all_trains = select_training_window(all_trains, today, 90)
     all_trains = apply_movement_cn_to_trains(all_trains)
