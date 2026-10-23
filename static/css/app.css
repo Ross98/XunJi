@@ -638,8 +638,8 @@ li { margin: 4px 0; }
 .asymmetry-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
 .asymmetry-grid > div { display:grid; gap:3px; padding:12px; border-radius:7px; background:var(--surface-subtle); }
 .asymmetry-grid strong { color:var(--text-strong); }
-.asymmetry-grid span, .asymmetry-grid em { color:var(--text-muted); font-size:13px; font-style:normal; }
-.asymmetry-grid b { color:var(--text-accent); font-size:12px; }
+.asymmetry-grid span, .asymmetry-grid em { color:var(--text-muted); font-size:14px; font-style:normal; }
+.asymmetry-grid b { color:var(--text-accent); font-size:14px; }
 
 /* ── Health overview ── */
 .empty-state-card { padding:40px; text-align:center; }

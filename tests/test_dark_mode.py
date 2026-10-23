@@ -61,7 +61,7 @@ def test_base_template_tracks_system_theme_and_rethemes_live_charts():
     assert "backdropColor = colors.surface" in html
     assert "darkChartPalette" in html
     assert "themeColorMeta" in html
-    assert "app.css?v=20261023-exit-feedback" in html
+    assert "app.css?v=20261023-asymmetry-readability" in html
 
 
 def test_theme_picker_offers_system_light_and_dark_and_persists_choice():

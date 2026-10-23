@@ -10,7 +10,7 @@ from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from app_state import get_cache, get_jinja_env, get_data_service
 from data_service import DataFreshnessService, DataService, extract_body_records, filter_body_records
-from analysis import summarize_body, body_latest, body_stats, body_changes, body_daily_records, calculate_bmi
+from analysis import summarize_body, body_latest, body_stats, body_changes, body_daily_records, calculate_bmi, body_asymmetry
 from local_settings import write_json_atomic
 from health_values import health_number
 from async_work import run_joined_threadpool
@@ -190,36 +190,7 @@ async def body_page(
     ]
     latest_measurement_date = max(measurement_dates) if measurement_dates else None
 
-    asymmetry = []
-    for label, right_key, left_key in (
-        ("大臂", "arm_right", "arm_left"),
-        ("小臂", "forearm_right", "forearm_left"),
-        ("大腿", "leg_right", "leg_left"),
-        ("小腿", "cav_right", "cav_left"),
-    ):
-        right = latest.get(right_key, {}).get("value")
-        left = latest.get(left_key, {}).get("value")
-        if right is None or left is None:
-            continue
-        try:
-            right_value, left_value = float(right), float(left)
-        except (TypeError, ValueError):
-            continue
-        right_date = latest[right_key].get("date")
-        left_date = latest[left_key].get("date")
-        comparable = bool(right_date and right_date == left_date)
-        average = (right_value + left_value) / 2
-        difference = round(right_value - left_value, 1) if comparable else None
-        asymmetry.append({
-            "label": label,
-            "right": right_value,
-            "left": left_value,
-            "right_date": right_date,
-            "left_date": left_date,
-            "difference": difference,
-            "percent": (round(abs(difference) / average * 100, 1) if average else 0) if comparable else None,
-            "dominant": ("右侧" if difference > 0 else "左侧" if difference < 0 else "平衡") if comparable else None,
-        })
+    asymmetry = body_asymmetry(latest)
     # Period change (first vs last in range)
     daily_records = body_daily_records(records_merged)
     def period_change(metric):

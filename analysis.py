@@ -560,6 +560,42 @@ def body_stats(records: list[dict]) -> dict[str, dict[str, float]]:
             for metric, samples in values.items()}
 
 
+
+def body_asymmetry(latest: dict) -> list[dict]:
+    """Compare same-day nonnegative circumference values before display rounding."""
+    result = []
+    for label, right_key, left_key in (
+        ("大臂", "arm_right", "arm_left"), ("小臂", "forearm_right", "forearm_left"),
+        ("大腿", "leg_right", "leg_left"), ("小腿", "cav_right", "cav_left"),
+    ):
+        right, left = latest.get(right_key, {}), latest.get(left_key, {})
+        if isinstance(right.get("value"), bool) or isinstance(left.get("value"), bool):
+            continue
+        try:
+            r, l = health_number(float(right.get("value"))), health_number(float(left.get("value")))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if r is None or l is None:
+            continue
+        same_day = bool(right.get("date") and right.get("date") == left.get("date"))
+        raw_difference = health_number(r - l) if same_day and r >= 0 and l >= 0 else None
+        difference = percent = dominant = None
+        under_precision = percent_under_precision = False
+        if raw_difference is not None:
+            difference = round(raw_difference, 1)
+            under_precision = raw_difference != 0 and difference == 0
+            dominant = "右侧" if raw_difference > 0 else "左侧" if raw_difference < 0 else "平衡"
+            scale = max(r, l)
+            if scale > 0:
+                raw_percent = (abs(raw_difference) / scale) * 200 / (r / scale + l / scale)
+                percent = round(raw_percent, 1)
+                percent_under_precision = raw_percent != 0 and percent == 0
+        result.append(dict(label=label, right=r, left=l, right_date=right.get("date"),
+                           left_date=left.get("date"), same_day=same_day, difference=difference,
+                           percent=percent, dominant=dominant, under_precision=under_precision,
+                           percent_under_precision=percent_under_precision))
+    return result
+
 def body_daily_records(records: list[dict]) -> list[dict]:
     """Use the last supplied same-day value, matching body_latest and the table."""
     daily = {}

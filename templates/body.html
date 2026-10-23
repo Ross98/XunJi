@@ -207,9 +207,11 @@
     {% for item in asymmetry %}
         <div><strong>{{ item.label }}</strong><span>右 {{ item.right }} / 左 {{ item.left }} cm</span>
         {% if item.difference is not none %}
-        <b>{{ item.dominant }} {% if item.difference %}多 {{ item.difference|abs }} cm{% else %}一致{% endif %}</b><em>差异 {{ item.percent }}% · 同日测量 {{ item.right_date }}</em>
+        <b>{{ item.dominant }} {% if item.under_precision|default(false) %}略多（不足0.1 cm）{% elif item.difference %}多 {{ item.difference|abs }} cm{% else %}一致{% endif %}</b><em>{% if item.percent is none %}差异比例未确认{% elif item.percent_under_precision|default(false) %}差异不足0.1%{% else %}差异 {{ item.percent }}%{% endif %} · 同日测量 <time style="white-space:nowrap;">{{ item.right_date }}</time></em>
+        {% elif item.same_day|default(false) %}
+        <b>数值未确认，暂不比较</b><em>请核对同日围度记录 · <time style="white-space:nowrap;">{{ item.right_date }}</time></em>
         {% else %}
-        <b>日期不同，暂不比较</b><em>右 {{ item.right_date|default('日期未确认', true) }} · 左 {{ item.left_date|default('日期未确认', true) }}</em>
+        <b>日期不同，暂不比较</b><em>右 <time style="white-space:nowrap;">{{ item.right_date|default('日期未确认', true) }}</time> · 左 <time style="white-space:nowrap;">{{ item.left_date|default('日期未确认', true) }}</time></em>
         {% endif %}</div>
     {% endfor %}
     </div>
