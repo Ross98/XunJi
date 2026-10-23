@@ -267,3 +267,77 @@ def test_bad_apple_health_value_cannot_break_body_http_or_override_api(
 
     asyncio.run(run())
     assert ah.query_records()[0]['value'] == 'bad'
+
+
+def test_body_changes_compare_daily_display_values_not_other_same_day_samples():
+    records = [
+        {'datestr': '2026-10-23', 'type': 'weight', 'value': '72'},
+        {'datestr': '2026-10-22', 'type': 'weight', 'value': '70'},
+        {'datestr': '2026-10-22', 'type': 'weight', 'value': '72'},
+        {'datestr': '2026-10-21', 'type': 'weight', 'value': '68'},
+    ]
+    before = [dict(row) for row in records]
+    changes = body_changes(records)
+    rows = body._build_table_data(records, changes)
+    assert [row['weight'] for row in rows] == [72, 72, 68]
+    assert [row['weight_change'] for row in rows] == [0, 4, None]
+    assert records == before
+
+
+def test_repeated_first_day_measurements_do_not_invent_a_baseline():
+    records = [
+        {'datestr': '2026-10-22', 'type': 'weight', 'value': '70'},
+        {'datestr': '2026-10-22', 'type': 'weight', 'value': '72'},
+    ]
+    assert body_changes(records) == {}
+
+
+def test_daily_body_changes_keep_metric_series_independent():
+    records = [
+        {'datestr': '2026-10-23', 'type': 'bodyfat', 'value': '20'},
+        {'datestr': '2026-10-23', 'type': 'weight', 'value': '72'},
+        {'datestr': '2026-10-22', 'type': 'bodyfat', 'value': '18'},
+        {'datestr': '2026-10-22', 'type': 'bodyfat', 'value': '19'},
+        {'datestr': '2026-10-22', 'type': 'weight', 'value': '70'},
+        {'datestr': '2026-10-22', 'type': 'weight', 'value': '72'},
+    ]
+    assert body_changes(records) == {'bodyfat:2026-10-23': 1, 'weight:2026-10-23': 0}
+
+
+@pytest.mark.parametrize('single_day', [False, True])
+def test_period_changes_use_daily_table_values_and_require_distinct_days(
+    isolated_health_db, tmp_cache, monkeypatch, tmp_path, single_day
+):
+    from datetime import date, timedelta
+    captured = {}
+    today = date.today()
+    base_day = today if single_day else today - timedelta(days=1)
+    records = [{'datestr': base_day.isoformat(), 'type': metric, 'value': value}
+               for metric, values in [('weight', ['70', '72']), ('bodyfat', ['18', '20'])]
+               for value in values]
+    if not single_day:
+        records = [{'datestr': today.isoformat(), 'type': 'weight', 'value': '74'},
+                   {'datestr': today.isoformat(), 'type': 'bodyfat', 'value': '22'}] + records
+
+    class Service:
+        async def get_body(self, *args):
+            return {'records': records}
+
+    class Template:
+        def render(self, **kwargs):
+            captured.update(kwargs)
+            return 'synthetic'
+
+    class Environment:
+        def get_template(self, *args):
+            return Template()
+
+    monkeypatch.setattr(body, 'get_data_service', Service)
+    monkeypatch.setattr(body, 'get_cache', lambda: tmp_cache)
+    monkeypatch.setattr(body, 'get_jinja_env', Environment)
+    monkeypatch.setattr(body, 'BODY_CONFIG_PATH', str(tmp_path / 'body.json'))
+    response = asyncio.run(body.body_page(Request({'type': 'http', 'path': '/body', 'headers': []}), range='all'))
+    assert response.status_code == 200
+    expected = None if single_day else 2
+    assert captured['period_weight_change'] == expected
+    assert captured['period_bf_change'] == expected

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from app_state import get_cache, get_jinja_env, get_data_service
 from data_service import DataFreshnessService, DataService, extract_body_records, filter_body_records
-from analysis import summarize_body, body_latest, body_stats, body_changes, calculate_bmi
+from analysis import summarize_body, body_latest, body_stats, body_changes, body_daily_records, calculate_bmi
 from local_settings import write_json_atomic
 
 router = APIRouter(tags=["body"])
@@ -217,8 +217,9 @@ async def body_page(
             "dominant": ("右侧" if difference > 0 else "左侧" if difference < 0 else "平衡") if comparable else None,
         })
     # Period change (first vs last in range)
+    daily_records = body_daily_records(records_merged)
     w_chrono = sorted(
-        [r for r in records_merged if r.get("type") == "weight" and r.get("value") is not None],
+        [r for r in daily_records if r.get("type") == "weight"],
         key=lambda x: x.get("datestr", ""),
     )
     period_weight_change = None
@@ -231,7 +232,7 @@ async def body_page(
         except (ValueError, TypeError):
             pass
     bf_chrono = sorted(
-        [r for r in records_merged if r.get("type") == "bodyfat" and r.get("value") is not None],
+        [r for r in daily_records if r.get("type") == "bodyfat"],
         key=lambda x: x.get("datestr", ""),
     )
     if len(bf_chrono) >= 2:

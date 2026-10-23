@@ -126,6 +126,7 @@
 <!-- Dual-axis chart -->
 <div class="card">
     <div class="card-title chart-title-row"><span>体重 & 体脂率趋势</span><span><button class="btn-range metric-toggle active" data-dataset="all">全部</button><button class="btn-range metric-toggle" data-dataset="weight">只看体重</button><button class="btn-range metric-toggle" data-dataset="bodyfat">只看体脂</button></span></div>
+    <p class="card-description">同日多次测量按均值绘制。</p>
     <div class="chart-large"><canvas id="dualChart"></canvas></div>
 </div>
 
@@ -221,15 +222,26 @@ const bData = {{ bodyfat_trend | tojson | safe }};
 
 // Merge by date: average duplicate-day values
 function avgByDate(arr) {
-    const map = {};
+    const map = Object.create(null);
     arr.forEach(d => {
-        if (!map[d.date]) map[d.date] = { sum: 0, count: 0 };
-        map[d.date].sum += d.value;
-        map[d.date].count += 1;
+        if (!['number', 'string'].includes(typeof d.value) ||
+            (typeof d.value === 'string' && d.value.trim() === '')) return;
+        const value = Number(d.value);
+        if (!Number.isFinite(value)) return;
+        if (!map[d.date]) {
+            map[d.date] = { mean: value, count: 1 };
+        } else {
+            const day = map[d.date];
+            day.count += 1;
+            const delta = value - day.mean;
+            // Avoid overflowing either the sum or an opposite-sign delta.
+            day.mean = Number.isFinite(delta) ? day.mean + delta / day.count :
+                day.mean * (1 - 1 / day.count) + value / day.count;
+        }
     });
     return Object.entries(map)
         .sort((a,b) => a[0].localeCompare(b[0]))
-        .map(([date, v]) => ({ date, value: v.sum / v.count }));
+        .map(([date, v]) => ({ date, value: v.mean }));
 }
 
 const weightAvg = avgByDate(wData);

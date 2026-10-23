@@ -567,23 +567,32 @@ def body_stats(records: list[dict]) -> dict[str, dict[str, float]]:
     return result
 
 
+def body_daily_records(records: list[dict]) -> list[dict]:
+    """Use the last supplied same-day value, matching body_latest and the table."""
+    daily = {}
+    for rec in records:
+        metric, day, value = rec.get("type"), rec.get("datestr", ""), rec.get("value")
+        if not isinstance(metric, str) or not metric or not isinstance(day, str) or isinstance(value, bool):
+            continue
+        try:
+            if not math.isfinite(float(value)):
+                continue
+        except (ValueError, TypeError, OverflowError):
+            continue
+        daily[(metric, day)] = rec
+    return sorted(daily.values(), key=lambda rec: rec.get("datestr", ""))
+
+
 def body_changes(records: list[dict]) -> dict[str, float]:
-    """Observed deltas only; the first same-type record has no baseline."""
+    """Compare daily display values; the first day has no prior-day baseline."""
     changes: dict[str, float] = {}
     prev: dict[str, float] = {}
-    # records are newest-first; reverse for chronological
-    for rec in reversed(records):
-        t = rec.get("type", "")
-        v = rec.get("value")
-        if t and v is not None:
-            try:
-                val = float(v)
-            except (ValueError, TypeError):
-                continue
-            key = f"{t}:{rec.get('datestr', '')}"
-            if t in prev:
-                changes[key] = round(val - prev[t], 2)
-            prev[t] = val
+    for rec in body_daily_records(records):
+        t, val = rec["type"], float(rec["value"])
+        key = f"{t}:{rec.get('datestr', '')}"
+        if t in prev:
+            changes[key] = round(val - prev[t], 2)
+        prev[t] = val
     return changes
 
 
