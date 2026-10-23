@@ -140,52 +140,62 @@ def import_all(
     sleep_batch = []
     parsed = 0
 
-    for event, elem in ET.iterparse(xml_path, events=("end",)):
-        parsed += 1
-        if cancel_event is not None and parsed % 1000 == 0 and cancel_event.is_set():
-            if record_batch or workout_batch or sleep_batch:
-                _bulk_insert(record_batch, workout_batch, sleep_batch)
-            raise ImportCancelled("Apple Health import cancelled")
-        if elem.tag == "Record":
-            t = elem.get("type", "")
-            sd = elem.get("startDate", "")
-            if t == "HKCategoryTypeIdentifierSleepAnalysis":
-                watermark = sleep_watermarks.get(elem.get("value", ""))
-            else:
-                watermark = record_watermarks.get(t)
-            if _is_before_import_window(sd, watermark):
-                elem.clear()
+    with open(xml_path, "rb") as xml_stream:
+        events = ET.iterparse(xml_stream, events=("start", "end"))
+        _, root = next(events)
+        # elem.clear() alone leaves an empty child attached to HealthData.
+        # Root attributes are unused; release its references as elements finish.
+        for event, elem in events:
+            if event != "end":
                 continue
-            if t == "HKCategoryTypeIdentifierSleepAnalysis":
-                rec = _parse_sleep(elem)
-                if rec:
-                    sleep_batch.append(rec)
+            parsed += 1
+            if cancel_event is not None and parsed % 1000 == 0 and cancel_event.is_set():
+                if record_batch or workout_batch or sleep_batch:
+                    _bulk_insert(record_batch, workout_batch, sleep_batch)
+                raise ImportCancelled("Apple Health import cancelled")
+            if elem.tag == "Record":
+                t = elem.get("type", "")
+                sd = elem.get("startDate", "")
+                if t == "HKCategoryTypeIdentifierSleepAnalysis":
+                    watermark = sleep_watermarks.get(elem.get("value", ""))
+                else:
+                    watermark = record_watermarks.get(t)
+                if _is_before_import_window(sd, watermark):
+                    elem.clear()
+                    root.clear()
+                    continue
+                if t == "HKCategoryTypeIdentifierSleepAnalysis":
+                    rec = _parse_sleep(elem)
+                    if rec:
+                        sleep_batch.append(rec)
+                        processed += 1
+                else:
+                    rec = _parse_record(elem)
+                    if rec:
+                        record_batch.append(rec)
+                        processed += 1
+            elif elem.tag == "Workout":
+                sd = elem.get("startDate", "")
+                watermark = workout_watermarks.get(elem.get("workoutActivityType", ""))
+                if _is_before_import_window(sd, watermark):
+                    elem.clear()
+                    root.clear()
+                    continue
+                wo = _parse_workout(elem)
+                if wo:
+                    workout_batch.append(wo)
                     processed += 1
-            else:
-                rec = _parse_record(elem)
-                if rec:
-                    record_batch.append(rec)
-                    processed += 1
-        elif elem.tag == "Workout":
-            sd = elem.get("startDate", "")
-            watermark = workout_watermarks.get(elem.get("workoutActivityType", ""))
-            if _is_before_import_window(sd, watermark):
-                elem.clear()
-                continue
-            wo = _parse_workout(elem)
-            if wo:
-                workout_batch.append(wo)
-                processed += 1
 
-        elem.clear()
+            elem.clear()
+            root.clear()
 
-        if len(record_batch) >= batch_size or len(workout_batch) >= batch_size or len(sleep_batch) >= batch_size:
-            total += _bulk_insert(record_batch, workout_batch, sleep_batch)
-            record_batch.clear()
-            workout_batch.clear()
-            sleep_batch.clear()
-            if progress_callback:
-                progress_callback(processed)
+            if len(record_batch) >= batch_size or len(workout_batch) >= batch_size or len(sleep_batch) >= batch_size:
+                total += _bulk_insert(record_batch, workout_batch, sleep_batch)
+                record_batch.clear()
+                workout_batch.clear()
+                sleep_batch.clear()
+                if progress_callback:
+                    progress_callback(processed)
 
     if record_batch or workout_batch or sleep_batch:
         total += _bulk_insert(record_batch, workout_batch, sleep_batch)

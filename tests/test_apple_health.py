@@ -392,3 +392,59 @@ def test_xml_import_rejects_nonfinite_numbers_without_losing_valid_neighbors(
     assert records[0]["start_date"] == "2026-08-09 09:00:00 +0800"
     assert records[0]["value" if field == "value" else "total_distance"] == 0
     json.dumps(records, allow_nan=False)
+
+
+@pytest.mark.parametrize('kind', ['record', 'workout'])
+@pytest.mark.parametrize('skipped', [False, True])
+def test_streaming_xml_releases_completed_root_children(
+    isolated_health_db, tmp_path, monkeypatch, kind, skipped
+):
+    from datetime import datetime, timedelta
+
+    ah = isolated_health_db
+    count = 6000
+    base = datetime(2026, 6, 1, 8)
+    xml = tmp_path / 'streaming.xml'
+    nodes = []
+    for index in range(count):
+        instant = (base + timedelta(seconds=index)).strftime('%Y-%m-%d %H:%M:%S +0800')
+        common = f'startDate="{instant}" endDate="{instant}" sourceName="synthetic"'
+        if kind == 'record':
+            nodes.append(f'<Record type="steps" value="1" unit="count" {common}>\n'
+                         '<MetadataEntry key="test" value="nested"/></Record>')
+        else:
+            nodes.append(f'<Workout workoutActivityType="Walking" duration="1" durationUnit="min" {common}>\n'
+                         '<WorkoutStatistics type="test" sum="1"/></Workout>')
+    xml.write_text('<HealthData>' + ''.join(nodes) + '</HealthData>')
+    monkeypatch.setattr(ah, 'EXPORT_XML', xml)
+    if skipped:
+        common = dict(start_date='2026-10-01 08:00:00 +0800', end_date='2026-10-01 08:00:00 +0800', source_name='synthetic')
+        ah._bulk_insert([dict(common, type='steps', value=1, unit='count')], [dict(common,
+            workout_activity_type='Walking', duration=1, duration_unit='min',
+            total_distance=None, total_distance_unit=None, total_energy_burned=None,
+            total_energy_burned_unit=None)])
+
+    original = ah.ET.iterparse
+    retained = []
+    final_children = []
+
+    def observe(source, events):
+        root = None
+        for event, elem in original(source, events=('start', 'end')):
+            if root is None:
+                root = elem
+            if event == 'end' and elem.tag in ('Record', 'Workout'):
+                retained.append(len(root))
+            if event == 'end' and elem is root:
+                final_children.append(len(root))
+            if event in events:
+                yield event, elem
+
+    monkeypatch.setattr(ah.ET, 'iterparse', observe)
+    assert ah.import_all(batch_size=500) == (0 if skipped else count)
+    assert len(retained) == count
+    assert max(retained) < count // 2, 'completed XML shells accumulated with file size'
+    assert final_children == [0]
+    stored = ah.query_records('steps') if kind == 'record' else ah.query_workouts('Walking')
+    assert len(stored) == (1 if skipped else count)
+    assert all(row['source_name'] == 'synthetic' for row in stored)
