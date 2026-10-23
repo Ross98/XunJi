@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app_state import get_jinja_env, get_cache
+from async_work import run_joined_threadpool
 from analysis import summarize_training
 from data_service import extract_trains, get_cached_training
 from planner import DEFAULT_PLAN_PREFERENCES, generate_plan, normalize_plan_preferences
@@ -44,13 +45,18 @@ def _recovery_display_values(recovery):
 
 @router.get("/plan", response_class=HTMLResponse)
 async def plan_page(request: Request):
-    today = date.today().isoformat()
+    return await run_joined_threadpool(_render_plan_page, request=request)
+
+
+def _render_plan_page(request: Request):
+    reference_day = date.today()
+    today = reference_day.isoformat()
 
     # Fetch last 30 days of training from cache
     cache = get_cache()
     recent_trains = []
     for i in range(30):
-        d = (date.today() - timedelta(days=i)).isoformat()
+        d = (reference_day - timedelta(days=i)).isoformat()
         cached = get_cached_training(cache, d)
         if cached:
             trains = extract_trains(cached)
@@ -65,7 +71,7 @@ async def plan_page(request: Request):
     try:
         import apple_health as ah
         if ah.HEALTH_DB_PATH.exists():
-            start = (date.today() - timedelta(days=29)).isoformat()
+            start = (reference_day - timedelta(days=29)).isoformat()
 
             # Sleep
             # Count sleep ending today, including stages spanning midnight.
@@ -95,7 +101,7 @@ async def plan_page(request: Request):
                         recovery[key + "_avg"] = mean
 
             # Activity
-            today_str = date.today().isoformat()
+            today_str = today
             steps = ah.query_records("HKQuantityTypeIdentifierStepCount", today_str, today_str + " 23:59:59")
             if steps:
                 from activity_stats import daily_activity_totals
@@ -108,7 +114,7 @@ async def plan_page(request: Request):
     preferences = _load_plan_preferences()
     plan = generate_plan(
         recent_trains,
-        reference_date=date.today(),
+        reference_date=reference_day,
         preferences=preferences,
         recovery=recovery,
     )

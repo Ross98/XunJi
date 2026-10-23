@@ -10,6 +10,7 @@ import stat
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.concurrency import run_in_threadpool
+from async_work import run_joined_threadpool as _run_import_worker
 from app_state import get_cache, get_jinja_env
 from data_service import DataFreshnessService
 from sleep_stats import confirmed_sleep_minutes
@@ -138,26 +139,6 @@ def _xml_export_info():
         return {"available": available, "size_mb": round(info.st_size / 1024 / 1024, 1) if available else None}
     except OSError:
         return {"available": False, "size_mb": None}
-
-
-async def _run_import_worker(func, **kwargs):
-    """Keep the thread joined even when its owning asyncio task is cancelled."""
-    worker = asyncio.create_task(run_in_threadpool(func, **kwargs))
-    try:
-        return await asyncio.shield(worker)
-    except asyncio.CancelledError:
-        # Cancelling run_in_threadpool's asyncio wrapper cannot stop the thread.
-        # Its cancellation event must be observed before shared resources close.
-        while not worker.done():
-            try:
-                await asyncio.shield(worker)
-            except asyncio.CancelledError:
-                continue
-            except Exception:
-                break
-        if not worker.cancelled():
-            worker.exception()  # Consume failures; shutdown retains cancellation.
-        raise
 
 
 async def _run_import_job():
