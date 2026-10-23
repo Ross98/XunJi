@@ -5,6 +5,7 @@ from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 import threading
 import logging
+import stat
 
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
@@ -22,6 +23,7 @@ SYNC_INTERVAL_SECONDS = 60
 _import_state_lock = threading.Lock()
 _import_state = {
     "status": "idle",
+    "kind": None,
     "processed": 0,
     "total": None,
     "message": "",
@@ -112,6 +114,7 @@ def _reset_import_state_for_tests(status: str = "idle"):
     with _import_state_lock:
         _import_state.update({
             "status": status,
+            "kind": None,
             "processed": 0,
             "total": None,
             "message": "",
@@ -125,6 +128,16 @@ def _reset_import_state_for_tests(status: str = "idle"):
 def _set_import_state(**updates):
     with _import_state_lock:
         _import_state.update(updates)
+
+
+def _xml_export_info():
+    """Inspect the source once; directories and unavailable files are not exports."""
+    try:
+        info = ah.EXPORT_XML.stat()
+        available = stat.S_ISREG(info.st_mode)
+        return {"available": available, "size_mb": round(info.st_size / 1024 / 1024, 1) if available else None}
+    except OSError:
+        return {"available": False, "size_mb": None}
 
 
 async def _run_import_worker(func, **kwargs):
@@ -233,6 +246,7 @@ def _render_health_page(request: Request):
     """Read SQLite and render together without blocking other requests."""
     env = get_jinja_env()
     tmpl = env.get_template("health.html")
+    export = _xml_export_info()
     stats = ah.get_import_count()
     imported = any(stats[key] > 0 for key in ("total_records", "total_workouts", "total_sleep"))
 
@@ -305,8 +319,8 @@ def _render_health_page(request: Request):
         health_value=_format_health_value,
         workout_label=workout_label,
         export_path=str(ah.EXPORT_XML),
-        export_exists=ah.EXPORT_XML.exists(),
-        export_size_mb=round(ah.EXPORT_XML.stat().st_size / 1024 / 1024, 1) if ah.EXPORT_XML.exists() else None,
+        export_exists=export["available"],
+        export_size_mb=export["size_mb"],
         coverage=coverage,
         hozz=_hozz_status_context(),
         database_size_mb=round(ah.HEALTH_DB_PATH.stat().st_size / 1024 / 1024, 1) if ah.HEALTH_DB_PATH.exists() else 0,
@@ -320,8 +334,16 @@ async def trigger_import():
     with _import_state_lock:
         if _import_state["status"] == "running":
             return {"status": "busy", "message": "Apple Health 数据正在导入"}
+    export = await run_in_threadpool(_xml_export_info)
+    with _import_state_lock:
+        if _import_state["status"] == "running":
+            return {"status": "busy", "message": "Apple Health 数据正在导入"}
+        if not export["available"]:
+            return {"status": "error", "export_available": False,
+                    "message": "未找到 Apple Health XML 导出文件，请放置文件后刷新页面重试"}
         _import_state.update({
             "status": "running",
+            "kind": "xml",
             "processed": 0,
             "total": None,
             "message": "准备读取 Apple Health 导出文件",
@@ -335,8 +357,9 @@ async def trigger_import():
 
 @router.get("/health/import/status")
 async def import_status():
+    export = await run_in_threadpool(_xml_export_info)
     with _import_state_lock:
-        return dict(_import_state)
+        return dict(_import_state, export_available=export["available"])
 
 
 async def _run_hozz_job():
@@ -365,7 +388,7 @@ async def trigger_hozz_sync():
     with _import_state_lock:
         if _import_state["status"] == "running":
             return {"status": "busy", "message": "Apple Health 数据正在导入"}
-        _import_state.update(status="running", processed=0, total=None,
+        _import_state.update(status="running", kind="hozz", processed=0, total=None,
                              message="正在检查 iCloud Hozz 新批次",
                              started_at=datetime.now(timezone.utc).isoformat(), finished_at=None)
     _import_cancel_event.clear()

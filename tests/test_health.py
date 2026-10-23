@@ -25,7 +25,10 @@ def test_health_page_only_reloads_after_observing_active_import():
     assert "state.status === 'ok' && importWasRunning" in template
 
 
-def test_health_import_starts_background_job(monkeypatch):
+def test_health_import_starts_background_job(monkeypatch, tmp_path):
+    export = tmp_path / "export.xml"
+    export.write_text("<HealthData/>")
+    monkeypatch.setattr(health.ah, "EXPORT_XML", export)
     calls = []
     cache = object()
 
@@ -188,7 +191,10 @@ def test_cancelled_hozz_job_does_not_report_completion(monkeypatch):
 
 @pytest.mark.parametrize("kind", ["hozz", "xml"])
 @pytest.mark.parametrize("fail", [False, True])
-def test_shutdown_waits_for_import_worker_thread_before_returning(monkeypatch, kind, fail):
+def test_shutdown_waits_for_import_worker_thread_before_returning(monkeypatch, tmp_path, kind, fail):
+    export = tmp_path / "export.xml"
+    export.write_text("<HealthData/>")
+    monkeypatch.setattr(health.ah, "EXPORT_XML", export)
     import threading
 
     async def check():

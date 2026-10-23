@@ -46,9 +46,10 @@
     <h2>尚未导入 Apple Health</h2>
     <p>请将 iPhone 导出的文件放到：</p>
     <code>{{ export_path }}</code>
-    <p>{% if export_exists %}已找到文件{% if export_size_mb %}，大小 {{ export_size_mb }} MB{% endif %}。{% else %}当前未找到该文件。{% endif %}</p>
-    <button onclick="startImport()" class="btn btn-primary" id="importBtn"{% if not export_exists %} disabled{% endif %}>开始后台导入</button>
-    <div id="importStatus" class="import-status"></div>
+    {% if export_exists %}<p>已找到文件{% if export_size_mb %}，大小 {{ export_size_mb }} MB{% endif %}。</p>{% endif %}
+    <p id="xmlSourceHint" class="card-description"{% if export_exists %} hidden{% endif %}>未找到 XML 导出文件，请放置文件后刷新页面。Hozz 同步可单独使用。</p>
+    <button onclick="startImport()" class="btn btn-primary" id="importBtn" data-export-available="{{ 'true' if export_exists else 'false' }}"{% if not export_exists %} disabled{% endif %}>开始后台导入</button>
+    <div id="importStatus" class="import-status" role="status" aria-live="polite"></div>
 </div>
 {% else %}
 
@@ -125,7 +126,8 @@
         <div class="card-title">后台导入</div>
         <p class="card-description">增量导入：已存在记录会跳过。页面刷新后仍可继续查看任务状态。</p>
         <code class="path-code">{{ export_path }}</code>
-        <div class="import-actions"><button onclick="startImport()" class="btn btn-primary" id="importBtn"{% if not export_exists %} disabled{% endif %}>重新导入</button><span id="importStatus"></span></div>
+        <p id="xmlSourceHint" class="card-description"{% if export_exists %} hidden{% endif %}>未找到 XML 导出文件，请放置文件后刷新页面。Hozz 同步可单独使用。</p>
+        <div class="import-actions"><button onclick="startImport()" class="btn btn-primary" id="importBtn" data-export-available="{{ 'true' if export_exists else 'false' }}"{% if not export_exists %} disabled{% endif %}>重新导入</button><span id="importStatus" role="status" aria-live="polite"></span></div>
         <div class="dashboard-progress-track import-progress"><div id="importProgressBar" class="dashboard-progress-bar" style="width:0%"></div></div>
     </div>
 </section>
@@ -149,35 +151,128 @@ drawHealthChart('healthRhrChart', {{ resting_hr|tojson|safe }}, '#3498db');
 drawHealthChart('healthVo2Chart', {{ vo2|tojson|safe }}, '#2ecc71');
 
 let importPollTimer = null;
+let importReloadTimer = null;
 let importWasRunning = false;
 let manualImport = false;
+let importStarting = false;
+let importRunning = false;
+let importJobKind = null;
+let importPollVersion = 0;
+let importPageActive = true;
+const importButton = document.getElementById('importBtn');
+const importIdleLabel = importButton ? importButton.textContent.trim() : '重新导入';
+let exportAvailable = !!importButton && importButton.dataset.exportAvailable === 'true';
+
+function healthImportPageActive() {
+    const shutdown = document.getElementById('projectShutdownScreen');
+    return importPageActive && (!shutdown || shutdown.hidden);
+}
+function renderImportControls() {
+    const busy = importStarting || importRunning;
+    const sourceHint = document.getElementById('xmlSourceHint');
+    if (sourceHint) sourceHint.hidden = exportAvailable;
+    if (importButton) {
+        importButton.disabled = busy || !exportAvailable;
+        importButton.textContent = importJobKind === 'xml' && busy
+            ? (importStarting ? '正在启动…' : '导入进行中…') : importIdleLabel;
+    }
+    const syncButton = document.getElementById('syncBtn');
+    if (syncButton) {
+        syncButton.disabled = busy;
+        syncButton.textContent = importJobKind === 'hozz' && busy
+            ? (importStarting ? '正在启动…' : 'Hozz 同步中…') : '立即同步 Hozz';
+    }
+}
+function scheduleImportPoll(delay) {
+    clearTimeout(importPollTimer);
+    if (healthImportPageActive()) importPollTimer = setTimeout(pollImportStatus, delay);
+}
 async function pollImportStatus() {
+    clearTimeout(importPollTimer);
+    importPollTimer = null;
+    if (!healthImportPageActive()) return;
+    const version = ++importPollVersion;
     try {
         const response = await fetch('/health/import/status');
+        if (!response.ok) throw new Error('HTTP ' + response.status);
         const state = await response.json();
+        if (version !== importPollVersion || !healthImportPageActive()) return;
+        if (!state || !['idle','running','ok','error','cancelled'].includes(state.status)) {
+            throw new Error('任务状态未确认');
+        }
+        // Older running services omit this field; preserve the server-rendered availability.
+        if (typeof state.export_available === 'boolean') exportAvailable = state.export_available;
+        importRunning = state.status === 'running';
+        importJobKind = ['xml','hozz'].includes(state.kind) ? state.kind : null;
+        renderImportControls();
         const status = document.getElementById('importStatus');
-        const button = document.getElementById('importBtn');
-        const syncButton = document.getElementById('syncBtn');
-        if (syncButton) syncButton.disabled = state.status === 'running';
+        const message = typeof state.message === 'string' ? state.message : '';
+        if (status) status.textContent = importRunning && state.processed
+            ? message + ' · 已处理 ' + state.processed + ' 条' : message;
         const bar = document.getElementById('importProgressBar');
-        if (status) status.textContent = state.status === 'running' ? state.message + (state.processed ? ' · 已解析 '+state.processed+' 条' : '') : state.message;
-        if (button) { button.disabled = state.status === 'running'; button.textContent = state.status === 'running' ? '导入进行中…' : '重新导入'; }
-        if (bar) bar.style.width = state.status === 'running' ? '72%' : state.status === 'ok' ? '100%' : '0%';
+        if (bar) bar.style.width = importRunning ? '72%' : state.status === 'ok' ? '100%' : '0%';
         if (state.status === 'running') importWasRunning = true;
-        if (state.status === 'running') importPollTimer = setTimeout(pollImportStatus, 1200);
-        else if (state.status === 'ok' && importWasRunning) { importWasRunning = false; showGlobalToast('Apple Health 导入完成，共 '+state.total+' 条新记录'); if (manualImport || state.total > 0) setTimeout(()=>location.reload(),800); }
-    } catch (error) { const status=document.getElementById('importStatus'); if(status) status.textContent='状态读取失败：'+error.message; }
+        if (importRunning) scheduleImportPoll(1200);
+        else {
+            if (state.status === 'ok' && importWasRunning) {
+                const label = importJobKind === 'hozz' ? 'Hozz 同步完成'
+                    : importJobKind === 'xml' ? 'Apple Health 导入完成' : '健康数据更新完成';
+                const total = Number.isSafeInteger(state.total) && state.total >= 0 ? state.total : 0;
+                showGlobalToast(label + '，共 ' + total + ' 条新入库记录');
+                if (manualImport || total > 0) {
+                    clearTimeout(importReloadTimer);
+                    importReloadTimer = setTimeout(() => { if (healthImportPageActive()) location.reload(); }, 800);
+                }
+            }
+            importWasRunning = false;
+            manualImport = false;
+        }
+    } catch (error) {
+        if (version !== importPollVersion || !healthImportPageActive()) return;
+        const status = document.getElementById('importStatus');
+        if (status) status.textContent = '状态读取失败，将自动重试：' + error.message;
+        scheduleImportPoll(5000);
+    }
 }
 async function startImport(url = '/health/import') {
-    const button = document.getElementById('importBtn'); if (button) button.disabled = true;
+    if (importStarting || importRunning || !healthImportPageActive()) return;
+    if (url === '/health/import' && !exportAvailable) {
+        showGlobalToast('未找到 XML 导出文件，请放置文件后刷新页面', 'error');
+        return;
+    }
+    ++importPollVersion;
+    clearTimeout(importPollTimer);
+    clearTimeout(importReloadTimer);
+    importStarting = true;
+    importJobKind = url === '/health/sync' ? 'hozz' : 'xml';
+    renderImportControls();
     try {
-        const response = await fetch(url,{method:'POST'}); const result = await response.json();
+        const response = await fetch(url, {method:'POST'});
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const result = await response.json();
+        if (typeof result.export_available === 'boolean') exportAvailable = result.export_available;
         if (!['started','busy'].includes(result.status)) throw new Error(result.message || '无法启动导入');
+        importRunning = true;
+        if (result.status === 'busy') importJobKind = null;
         importWasRunning = true;
-        manualImport = true;
-        pollImportStatus();
-    } catch (error) { if(button) button.disabled=false; showGlobalToast('导入失败：'+error.message,'error'); }
+        manualImport = result.status === 'started';
+    } catch (error) {
+        showGlobalToast('启动失败：' + error.message, 'error');
+    } finally {
+        importStarting = false;
+        renderImportControls();
+    }
+    await pollImportStatus();
 }
+window.addEventListener('pagehide', () => {
+    importPageActive = false;
+    ++importPollVersion;
+    clearTimeout(importPollTimer);
+    clearTimeout(importReloadTimer);
+});
+window.addEventListener('pageshow', event => {
+    if (event.persisted) { importPageActive = true; pollImportStatus(); }
+});
 pollImportStatus();
 </script>
 {% endblock %}
