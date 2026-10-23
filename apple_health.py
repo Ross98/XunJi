@@ -563,30 +563,36 @@ def query_sleep(start: str = None,
 
 def get_sleep_summary(start: str = None, end: str = None) -> list[dict]:
     """Summarize connected sleep intervals by completion date, without double counting."""
-    from sleep_stats import parse_intervals, summarize_intervals
+    from sleep_stats import parse_intervals, summarize_intervals, window_components
 
-    lower = start[:10] + " 00:00:00" if start else None
-    upper = end[:10] + " 23:59:59" if end else None
-    # Expand until all intervals touching the requested window are available.
-    # This includes pre-midnight stages and avoids truncating a component at
-    # either query boundary. Unchanged raw records remain the source of truth.
+    def padded(day, delta):
+        ordinal = date.fromisoformat(day[:10]).toordinal() + delta
+        return date.fromordinal(max(date.min.toordinal(), min(date.max.toordinal(), ordinal))).isoformat()
+
+    lower = padded(start, -2) if start else None
+    upper = padded(end, 2) if end else None
+    # Date-only SQL bounds accept XML and ISO separators. Padding covers every
+    # valid UTC offset; exact absolute-time components then determine expansion.
+    # Disconnected padding rows must not cause repeated outward expansion.
     with _conn() as conn:
         conn.execute("BEGIN")
         while True:
             sql, params = "SELECT type, start_date, end_date FROM health_sleep WHERE 1=1", []
-            if lower:
-                sql += " AND substr(end_date,1,19) >= ?"
-                params.append(lower)
-            if upper:
-                sql += " AND substr(start_date,1,19) <= ?"
-                params.append(upper)
-            intervals = parse_intervals(conn.execute(sql, params).fetchall())
+            for column, bound, operator in (("end_date", lower, ">="), ("start_date", upper, "<=")):
+                if bound:
+                    # Unusual but valid ISO formats are parsed in Python rather
+                    # than silently excluded by a canonical-date text bound.
+                    sql += (f" AND (substr(trim({column}),1,10) {operator} ?"
+                            f" OR substr(trim({column}),5,1) != '-'"
+                            f" OR substr(trim({column}),8,1) != '-')")
+                    params.append(bound)
+            intervals = window_components(parse_intervals(conn.execute(sql, params)), start, end)
             if not intervals:
                 return []
-            first = min(row[0] for row in intervals).isoformat(sep=" ")
-            last = max(row[1] for row in intervals).isoformat(sep=" ")
-            new_lower = min(lower, first) if lower else None
-            new_upper = max(upper, last) if upper else None
+            first = min(interval.start[0].date().isoformat() for interval in intervals)
+            last = max(interval.end[0].date().isoformat() for interval in intervals)
+            new_lower = min(lower, padded(first, -2)) if lower else None
+            new_upper = max(upper, padded(last, 2)) if upper else None
             if (lower, upper) == (new_lower, new_upper):
                 break
             lower, upper = new_lower, new_upper

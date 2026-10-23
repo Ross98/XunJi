@@ -90,8 +90,9 @@
             <div class="sleep-stage-row"><span>REM {{ sleep_metrics.rem_pct }}%</span><i style="width:{{ sleep_metrics.rem_pct }}%;background:#9c6ade"></i></div>
             {% else %}<div class="inline-state">{{ '睡眠时长尚未确认' if latest_sleep else '暂无睡眠阶段数据' }}</div>{% endif %}
             <p class="card-description">连续阶段按结束日归档，重叠时段只计一次；近90天有记录 {{ sleep_nights }} 天，有效原始阶段 {{ sleep_count }} 条。</p>
-            {% if latest_sleep and latest_sleep.Conflict|default(0) %}<p class="card-description">清醒与睡眠来源冲突 {{ latest_sleep.Conflict }} 分钟，本次完整时长未确认。</p>{% endif %}
-            {% if latest_sleep and latest_sleep.StageConflict|default(0) %}<p class="card-description">分期冲突 {{ latest_sleep.StageConflict }} 分钟，仅计入未分期睡眠。</p>{% endif %}
+            {% if latest_sleep and latest_sleep.time_unconfirmed|default(false) %}<p class="card-description">睡眠记录时区未确认，本次完整时长未确认。请核对源记录时区。</p>{% endif %}
+            {% if latest_sleep and (latest_sleep.has_conflict|default(false) or latest_sleep.Conflict|default(0)) %}<p class="card-description">清醒与睡眠来源冲突 {{ latest_sleep.Conflict if latest_sleep.Conflict else '不足0.01' }} 分钟，本次完整时长未确认。</p>{% endif %}
+            {% if latest_sleep and (latest_sleep.has_stage_conflict|default(false) or latest_sleep.StageConflict|default(0)) %}<p class="card-description">分期冲突 {{ latest_sleep.StageConflict if latest_sleep.StageConflict else '不足0.01' }} 分钟，仅计入未分期睡眠。</p>{% endif %}
             {% if latest_sleep and latest_sleep.AsleepUnspecified|default(0) %}<p class="card-description">未细分阶段 {{ latest_sleep.AsleepUnspecified }} 分钟。</p>{% endif %}
         </div>
         <div class="card">

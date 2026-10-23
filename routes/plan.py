@@ -65,7 +65,8 @@ async def plan_page(request: Request):
             sleep_rows = ah.get_sleep_summary(today, today)
             sl = sleep_rows[0] if sleep_rows else {}
             st = confirmed_sleep_minutes(sl)
-            recovery["sleep_conflict"] = bool(sl.get("Conflict"))
+            recovery["sleep_conflict"] = bool(sl.get("has_conflict") or sl.get("Conflict"))
+            recovery["sleep_time_unconfirmed"] = bool(sl.get("time_unconfirmed"))
             if st is not None:
                 recovery["sleep_hours"] = round(st / 60, 1)
                 recovery["sleep_deep_pct"] = round(sl.get("AsleepDeep", 0) / st * 100, 0)
