@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Path, Request
 from fastapi.responses import HTMLResponse
 from app_state import get_jinja_env, get_data_service, get_cache
+from async_work import run_joined_threadpool
 from data_service import DataService, extract_trains, get_cached_training, resolve_training_cache
 from analysis import (
     summarize_training,
@@ -443,15 +444,18 @@ async def training_page(request: Request):
 
 @router.get("/training/track/{movement_name:path}")
 async def training_track(movement_name: str):
-    """Returns movement history JSON for Chart.js."""
-    from analysis import movement_history
+    """Read and compute history without blocking status or quit requests."""
+    return await run_joined_threadpool(_read_training_track, movement_name=movement_name)
+
+
+def _read_training_track(movement_name: str):
     cache = get_cache()
-    cached_dates = _get_cached_training_dates()
+    cached_dates = sorted({day for key in cache.keys_by_prefix("training:")
+                           if (day := _parse_date_from_cache_key(key)) is not None})
     all_trains = []
     for d in cached_dates:
         all_trains.extend(extract_trains(get_cached_training(cache, d)))
     all_trains = apply_movement_cn_to_trains(all_trains)
-    all_trains_raw = list(all_trains)
     all_trains = _merge_overlapping_trains(all_trains)
     hist = movement_history(all_trains, movement_name)
     return {
