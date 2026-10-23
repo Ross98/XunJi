@@ -1,8 +1,8 @@
 <div class="detail-header detail-nav">
     <span>{{ date_str }}</span>
     <span>
-        {% if previous_date %}<button class="btn-nav" hx-get="/training/{{ previous_date }}" hx-target="#training-detail" hx-swap="innerHTML">← 上一训练日</button>{% endif %}
-        {% if next_date %}<button class="btn-nav" hx-get="/training/{{ next_date }}" hx-target="#training-detail" hx-swap="innerHTML">下一训练日 →</button>{% endif %}
+        {% if previous_date %}<button class="btn-nav" type="button" data-training-date="{{ previous_date }}">← 上一训练日</button>{% endif %}
+        {% if next_date %}<button class="btn-nav" type="button" data-training-date="{{ next_date }}">下一训练日 →</button>{% endif %}
     </span>
 </div>
 {% if trains %}

@@ -195,6 +195,7 @@ def test_training_page_excludes_pending_day_from_frequency_but_keeps_calendar_ac
 
     cell = CalendarCell()
     cell.feed(response.body.decode())
-    assert cell.attributes['hx-get'] == '/training/'+pending_day
+    assert cell.attributes['data-training-date'] == pending_day
+    assert 'hx-get' not in cell.attributes
     assert '仅未完成记录' in cell.attributes['aria-label']
     assert 'cal-load-' not in cell.attributes['class']

@@ -28,10 +28,7 @@
             {% else %}
             <td class="cal-day"
             {% endif %}
-                hx-get="/training/{{ d.date_str }}"
-                hx-target="#training-detail"
-                hx-swap="innerHTML"
-                hx-trigger="click, keyup[key=='Enter']"
+                data-training-date="{{ d.date_str }}"
                 role="button" tabindex="0" data-date="{{ d.date_str }}"
                 aria-label="{{ d.date_str }}{% if d.is_unfinished %} 仅未完成记录{% elif d.has_data %} 有训练记录{% else %} 无训练记录{% endif %}">
                 {{ d.day }}

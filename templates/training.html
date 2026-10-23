@@ -92,7 +92,7 @@
         </div>
         <div class="training-divider"></div>
         <div class="training-side" style="flex:1;">
-            <div id="training-detail">
+            <div id="training-detail" data-date="{{ date_str }}">
                 {% include "training_detail.html" %}
             </div>
         </div>
@@ -325,7 +325,10 @@ function buildFreqGrid() {
                 else cell.classList.add('hm-inactive');
                 cell.title = ds + ' ' + (freqCounts[ds] || 0) + '次';
                 cell.dataset.date = ds;
-                cell.addEventListener('click', function() { selectTrainingDate(ds, cell); });
+                cell.dataset.trainingDate = ds;
+                cell.setAttribute('role', 'button');
+                cell.setAttribute('tabindex', '0');
+                cell.setAttribute('aria-label', cell.title);
             }
             col.appendChild(cell);
         }
@@ -341,28 +344,90 @@ function buildFreqGrid() {
 }
 buildFreqGrid();
 
-async function selectTrainingDate(dateString, cell) {
-    document.querySelectorAll('.hm-cell.selected, .cal-day.selected').forEach(el=>el.classList.remove('selected'));
-    if (cell) cell.classList.add('selected');
+let _detailRequestVersion = 0;
+let _detailController = null;
+let _selectedTrainingDate = document.getElementById('training-detail').dataset.date || null;
+
+function syncTrainingDateSelection() {
+    document.querySelectorAll('.hm-cell[data-date], .cal-day[data-date]').forEach(cell => {
+        const selected = cell.dataset.date === _selectedTrainingDate;
+        cell.classList.toggle('selected', selected);
+        cell.setAttribute('aria-pressed', String(selected));
+    });
+}
+
+function invalidateTrainingDetail() {
+    _detailRequestVersion += 1;
+    if (_detailController) _detailController.abort();
+    _detailController = null;
     const detail = document.getElementById('training-detail');
-    detail.setAttribute('aria-busy','true');
-    detail.innerHTML = '<div class="inline-state">正在读取 '+dateString+'…</div>';
+    if (detail) detail.setAttribute('aria-busy', 'false');
+    return _detailRequestVersion;
+}
+
+function showTrainingDetailMessage(detail, text, error = false) {
+    const message = document.createElement('div');
+    message.className = error ? 'inline-state error' : 'inline-state';
+    message.style.fontSize = '14px';
+    message.setAttribute('role', error ? 'alert' : 'status');
+    message.textContent = text;
+    detail.replaceChildren(message);
+}
+
+async function selectTrainingDate(dateString) {
+    const detail = document.getElementById('training-detail');
+    if (!detail) return;
+    const version = invalidateTrainingDetail();
+    if (typeof dateString !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+        _selectedTrainingDate = null;
+        syncTrainingDateSelection();
+        showTrainingDetailMessage(detail, '日期格式不正确，请重新选择。', true);
+        return;
+    }
+    _selectedTrainingDate = dateString;
+    syncTrainingDateSelection();
+    const controller = new AbortController();
+    _detailController = controller;
+    const isCurrent = () => version === _detailRequestVersion && _selectedTrainingDate === dateString;
+    detail.setAttribute('aria-busy', 'true');
+    showTrainingDetailMessage(detail, '正在读取 ' + dateString + '…');
     try {
-        const response = await fetch('/training/' + dateString);
+        const response = await fetch('/training/' + encodeURIComponent(dateString), { signal: controller.signal });
+        if (!isCurrent()) return;
         if (!response.ok) throw new Error('服务器返回 ' + response.status);
-        detail.innerHTML = await response.text();
-        detail.setAttribute('aria-busy','false');
+        const html = await response.text();
+        if (!isCurrent()) return;
+        detail.innerHTML = html;
+        detail.dataset.date = dateString;
     } catch (error) {
-        detail.innerHTML = '<div class="inline-state error">读取失败：'+error.message+'</div>';
+        if (isCurrent()) showTrainingDetailMessage(detail, '读取失败：' + error.message + '。请再次选择日期重试。', true);
+    } finally {
+        if (isCurrent()) {
+            detail.setAttribute('aria-busy', 'false');
+            _detailController = null;
+        }
     }
 }
 
-document.body.addEventListener('click', function(event) {
-    const day = event.target.closest('.cal-day');
-    if (!day) return;
-    document.querySelectorAll('.cal-day.selected').forEach(el=>el.classList.remove('selected'));
-    day.classList.add('selected');
+// Delegate all date controls, including fragments replaced during month changes.
+document.body.addEventListener('click', event => {
+    const control = event.target.closest('[data-training-date]');
+    if (!control || control.disabled) return;
+    event.preventDefault();
+    selectTrainingDate(control.dataset.trainingDate);
 });
+document.body.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const control = event.target.closest('[data-training-date]');
+    if (!control || !control.matches('.hm-cell, .cal-day')) return;
+    event.preventDefault();
+    selectTrainingDate(control.dataset.trainingDate);
+});
+window.addEventListener('pagehide', invalidateTrainingDetail);
+window.addEventListener('pageshow', event => {
+    if (event.persisted && _selectedTrainingDate) selectTrainingDate(_selectedTrainingDate);
+});
+syncTrainingDateSelection();
 
 // ── Movement tracker ──
 const movementNames = {{ movement_names | tojson | safe }};
