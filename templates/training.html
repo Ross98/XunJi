@@ -86,6 +86,7 @@
     <div class="training-merged">
         <div class="training-side">
             <div class="detail-header">日历 <span class="calendar-legend"><i></i>颜色越深训练量越高</span></div>
+            <div id="calendar-status" class="inline-state" style="font-size:14px;color:var(--text-primary);" role="status" aria-live="polite" hidden></div>
             <div id="calendar-container">
                 {% include "training_calendar.html" %}
             </div>
@@ -428,6 +429,70 @@ window.addEventListener('pageshow', event => {
     if (event.persisted && _selectedTrainingDate) selectTrainingDate(_selectedTrainingDate);
 });
 syncTrainingDateSelection();
+
+// ── Calendar month requests ──
+let _calendarVersion = 0;
+let _calendarController = null;
+let _calendarURL = null;
+
+function invalidateTrainingMonth() {
+    _calendarVersion += 1;
+    if (_calendarController) _calendarController.abort();
+    _calendarController = null;
+    document.getElementById('calendar-container').setAttribute('aria-busy', 'false');
+    return _calendarVersion;
+}
+
+function showTrainingMonthStatus(text, error = false) {
+    const status = document.getElementById('calendar-status');
+    status.textContent = text;
+    status.hidden = !text;
+    status.setAttribute('role', error ? 'alert' : 'status');
+    status.className = error ? 'inline-state error' : 'inline-state';
+}
+
+async function selectTrainingMonth(url) {
+    const version = invalidateTrainingMonth();
+    if (typeof url !== 'string' || !/^\/training\/calendar\/[1-9]\d{0,3}\/(?:[1-9]|1[0-2])$/.test(url)) {
+        showTrainingMonthStatus('月份格式不正确，请重新选择。', true);
+        return;
+    }
+    _calendarURL = url;
+    const calendar = document.getElementById('calendar-container');
+    const controller = new AbortController();
+    _calendarController = controller;
+    const isCurrent = () => version === _calendarVersion;
+    calendar.setAttribute('aria-busy', 'true');
+    showTrainingMonthStatus('正在读取月份…');
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!isCurrent()) return;
+        if (!response.ok) throw new Error('服务器返回 ' + response.status);
+        const html = await response.text();
+        if (!isCurrent()) return;
+        calendar.innerHTML = html;
+        syncTrainingDateSelection();
+        showTrainingMonthStatus('');
+    } catch (error) {
+        if (isCurrent()) showTrainingMonthStatus('月份读取失败：' + error.message + '。请再次点击月份箭头重试。', true);
+    } finally {
+        if (isCurrent()) {
+            calendar.setAttribute('aria-busy', 'false');
+            _calendarController = null;
+        }
+    }
+}
+
+document.body.addEventListener('click', event => {
+    const control = event.target.closest('[data-calendar-url]');
+    if (!control || control.disabled) return;
+    event.preventDefault();
+    selectTrainingMonth(control.dataset.calendarUrl);
+});
+window.addEventListener('pagehide', invalidateTrainingMonth);
+window.addEventListener('pageshow', event => {
+    if (event.persisted && _calendarURL) selectTrainingMonth(_calendarURL);
+});
 
 // ── Movement tracker ──
 const movementNames = {{ movement_names | tojson | safe }};

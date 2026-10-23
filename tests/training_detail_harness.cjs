@@ -14,7 +14,7 @@ const context={AbortController,document:{getElementById:id=>detail,querySelector
 vm.createContext(context);
 let source=fs.readFileSync('templates/training.html','utf8');
 let start=source.indexOf('let _detailRequestVersion');if(start<0)start=source.indexOf('async function selectTrainingDate');
-source=source.slice(start,source.indexOf('// ── Movement tracker ──'));
+source=source.slice(start,source.indexOf('// ── Calendar month requests ──'));
 vm.runInContext(source,context);
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 const select=date=>vm.runInContext(`selectTrainingDate(${JSON.stringify(date)})`,context);
