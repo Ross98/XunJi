@@ -820,8 +820,7 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
     box-shadow: var(--shadow-raised);
 }
 .modal-title { color:var(--text-strong); font-size:18px; font-weight:700; }
-.exit-confirm-box p { margin:12px 0 0; color:var(--text-muted); font-size:13px; line-height:1.6; }
-.exit-confirm-box .exit-confirm-warning { color:#b86a18; }
+.exit-confirm-box p { margin:12px 0 0; color:var(--text-muted); font-size:14px; line-height:1.6; }
 .exit-confirm-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
 .btn-danger { border:1px solid #b52f3e; background:#b52f3e; color:#fff; }
 .btn-danger:hover { background:#942431; }

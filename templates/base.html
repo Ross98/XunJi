@@ -25,7 +25,7 @@
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
 })();
 </script>
-<link rel="stylesheet" href="/static/css/app.css?v=20261023-body-cache-fallback">
+<link rel="stylesheet" href="/static/css/app.css?v=20261023-exit-feedback">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 <script>
@@ -271,16 +271,19 @@ async function waitForProjectClosed() {
                 signal: controller.signal,
             });
         } catch (error) {
-            clearTimeout(timeout);
-            title.textContent = '项目已关闭';
-            message.textContent = '端口、后台任务和网络连接已释放。此窗口会尝试自动关闭。';
+            // A slow response is still a live, unresolved probe. Listener
+            // disconnection alone cannot prove background cleanup finished.
+            if (error.name === 'AbortError') continue;
+            title.textContent = '服务连接已断开';
+            message.textContent = '退出请求已发出。页面无法继续确认清理状态，可关闭此窗口。';
             setTimeout(() => window.close(), 500);
             return;
+        } finally {
+            clearTimeout(timeout);
         }
-        clearTimeout(timeout);
     }
     title.textContent = '项目退出已发起';
-    message.textContent = '服务正在完成最后的资源清理，可关闭此窗口。';
+    message.textContent = '服务仍在清理或尚未确认结束，可关闭此窗口。';
 }
 
 async function confirmExitProject() {

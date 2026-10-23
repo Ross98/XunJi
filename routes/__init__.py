@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 
 from shutdown_service import schedule_shutdown
 from request_shutdown import RequestShutdownMiddleware, ShutdownRequests
@@ -60,20 +61,22 @@ def register_routes(app: FastAPI):
             return None
         try:
             dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        except ValueError:
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone(timedelta(hours=8)))
+            return dt.isoformat(timespec="seconds")[:19]
+        except (ValueError, OverflowError):
             return None
-        if dt.tzinfo is not None:
-            dt = dt.astimezone(timezone(timedelta(hours=8)))
-            return dt.isoformat()[:19]
-        return ts[:19]
 
-    @app.get("/admin/refresh-times")
-    async def refresh_times():
+    def read_refresh_times():
         from app_state import get_cache
         c = get_cache()
         xunji = c.get("_xunji_refresh_time")
         health = c.get("_health_import_time")
         return {"xunji": to_bj(xunji.get("time")) if xunji else None, "health": to_bj(health.get("time")) if health else None}
+
+    @app.get("/admin/refresh-times")
+    async def refresh_times():
+        return await run_in_threadpool(read_refresh_times)
 
     @app.post("/admin/shutdown", status_code=status.HTTP_202_ACCEPTED)
     async def shutdown_project(request: Request):
