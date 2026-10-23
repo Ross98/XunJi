@@ -190,3 +190,80 @@ def test_body_history_preserves_year_and_observed_zero_change(
     assert [row[0] for row in parsed.rows] == ['2026-01-01', '2025-01-01']
     assert parsed.rows[0][-1] == '0.00'
     assert parsed.rows[1][-1] == '--'
+
+
+@pytest.mark.parametrize('metric,unit,valid,expected', [
+    ('HKQuantityTypeIdentifierBodyMass', 'kg', 70.25, '70.25'),
+    ('HKQuantityTypeIdentifierBodyFatPercentage', '%', .195, '19.5'),
+])
+@pytest.mark.parametrize('invalid', [None, 'bad', float('inf'), float('-inf')])
+def test_apple_health_body_merge_skips_bad_latest_value_and_keeps_valid_neighbor(
+    isolated_health_db, metric, unit, valid, expected, invalid
+):
+    ah = isolated_health_db
+    rows = [dict(type=metric, start_date='2026-10-22 ' + clock + ' +0800',
+                 end_date='2026-10-22 ' + clock + ' +0800',
+                 value=value, unit=unit, source_name='synthetic')
+            for clock, value in [('08:00:00', valid), ('20:00:00', invalid)]]
+    ah._bulk_insert(rows, [])
+    before = ah.query_records(metric)
+    merged, ah_dates = body._merge_apple_health([], '2026-10-01', '2026-10-22')
+    assert merged == [{'datestr': '2026-10-22',
+                       'type': 'weight' if unit == 'kg' else 'bodyfat',
+                       'value': expected, 'source': 'apple_health'}]
+    assert ah_dates == {'2026-10-22'}
+    assert ah.query_records(metric) == before
+
+
+def test_apple_health_zero_bodyfat_is_not_discarded(isolated_health_db):
+    ah = isolated_health_db
+    ah._bulk_insert([dict(type='HKQuantityTypeIdentifierBodyFatPercentage',
+        start_date='2026-10-22 08:00:00 +0800', end_date='2026-10-22 08:00:00 +0800',
+        value=0, unit='%', source_name='synthetic')], [])
+    merged, dates = body._merge_apple_health([], '2026-10-01', '2026-10-22')
+    assert merged == [{'datestr': '2026-10-22', 'type': 'bodyfat', 'value': '0.0', 'source': 'apple_health'}]
+    assert dates == {'2026-10-22'}
+
+
+def test_apple_health_percentage_overflow_does_not_hide_valid_same_day_value(isolated_health_db):
+    ah = isolated_health_db
+    ah._bulk_insert([dict(type='HKQuantityTypeIdentifierBodyFatPercentage',
+        start_date='2026-10-22 ' + clock + ' +0800', end_date='2026-10-22 ' + clock + ' +0800',
+        value=value, unit='%', source_name='synthetic')
+        for clock, value in [('08:00:00', .2), ('20:00:00', 1e308)]], [])
+    merged, _ = body._merge_apple_health([], '2026-10-01', '2026-10-22')
+    assert merged[0]['value'] == '20.0'
+
+
+def test_bad_apple_health_value_cannot_break_body_http_or_override_api(
+    isolated_health_db, tmp_cache, monkeypatch, tmp_path
+):
+    import httpx
+    from datetime import date
+    from fastapi import FastAPI
+
+    ah = isolated_health_db
+    day = date.today().isoformat()
+    ah._bulk_insert([dict(type='HKQuantityTypeIdentifierBodyMass',
+        start_date=day + ' 08:00:00 +0800', end_date=day + ' 08:01:00 +0800',
+        value='bad', unit='kg', source_name='synthetic')], [])
+
+    class Service:
+        async def get_body(self, *args):
+            return {'records': [{'datestr': day, 'type': 'weight', 'value': '70'}]}
+
+    monkeypatch.setattr(body, 'get_data_service', Service)
+    monkeypatch.setattr(body, 'get_cache', lambda: tmp_cache)
+    monkeypatch.setattr(body, 'BODY_CONFIG_PATH', str(tmp_path / 'body.json'))
+    app = FastAPI()
+    app.include_router(body.router)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://local') as client:
+            response = await client.get('/body?range=all')
+            assert response.status_code == 200
+            assert '70' in response.text
+            assert '训记' in response.text
+
+    asyncio.run(run())
+    assert ah.query_records()[0]['value'] == 'bad'

@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 import json
 import logging
+import math
 import os
 
 from fastapi import APIRouter, Request, Query
@@ -69,24 +70,23 @@ def _merge_apple_health(records: list[dict], start: str, end: str) -> tuple[list
     # Key: date string -> {type: value}
     ah_by_date: dict[str, dict] = {}
 
-    for r in ah_weight:
-        d = r["start_date"][:10]
-        ah_dates.add(d)
-        if d not in ah_by_date:
-            ah_by_date[d] = {}
-        # Keep the first (most recent) value for each date
-        if "weight" not in ah_by_date[d]:
-            ah_by_date[d]["weight"] = round(r["value"], 2) if r["value"] else None
-
-    for r in ah_bf:
-        d = r["start_date"][:10]
-        ah_dates.add(d)
-        if d not in ah_by_date:
-            ah_by_date[d] = {}
-        if "bodyfat" not in ah_by_date[d]:
-            # Apple Health stores body fat as decimal 0.19 = 19%
-            bf_val = round(r["value"] * 100, 1) if r["value"] else None
-            ah_by_date[d]["bodyfat"] = bf_val
+    for metric, samples, scale, precision in (
+        ("weight", ah_weight, 1, 2),
+        ("bodyfat", ah_bf, 100, 1),
+    ):
+        for row in samples:
+            day = row["start_date"][:10]
+            candidate = {"datestr": day, "type": metric, "value": row.get("value")}
+            if not filter_body_records([candidate]):
+                continue
+            value = float(candidate["value"]) * scale
+            if not math.isfinite(value):
+                continue
+            ah_dates.add(day)
+            values = ah_by_date.setdefault(day, {})
+            # Inputs are newest first; invalid samples must not claim the key.
+            if metric not in values:
+                values[metric] = round(value, precision)
 
     merged = list(records)
     existing_keys = {(record.get("datestr"), record.get("type")) for record in records}
