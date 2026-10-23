@@ -1,5 +1,6 @@
 from typing import Any, Optional, Union
 import math
+from health_values import health_weighted_mean
 
 def _safe_float(v: Any) -> float:
     if isinstance(v, bool):
@@ -420,8 +421,7 @@ def summarize_set_metrics(sets) -> dict:
     if len(averages) == 1:
         result["avgHeartRate"] = averages[0][0]
     elif averages and all(duration > 0 for _, duration in averages):
-        result["avgHeartRate"] = sum(avg * duration for avg, duration in averages) / sum(
-            duration for _, duration in averages)
+        result["avgHeartRate"] = health_weighted_mean(averages)
     result["heart_rate_observations"] = len(averages)
     return result
 

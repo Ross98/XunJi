@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 import math
 import re
+from sys import float_info
 
 
 def _health_timestamp_parts(value, require_timezone):
@@ -93,3 +94,32 @@ def health_mean(values):
         mean = (mean + delta / count if math.isfinite(delta) else
                 mean * (1 - 1 / count) + value / count)
     return health_number(mean) if count else None
+
+
+def health_weighted_mean(observations):
+    """Mean of finite values with known positive weights; preserve unknown weights."""
+    numbers = [(health_number(value), health_number(weight)) for value, weight in observations]
+    if not numbers or any(value is None or weight is None or weight <= 0 for value, weight in numbers):
+        return None
+    try:
+        products = [value * weight for value, weight in numbers]
+        # Subnormal products can lose significant digits, even without becoming
+        # zero. Keep exact arithmetic for these exceptional inputs as well.
+        if all(math.isfinite(product) and (abs(product) >= float_info.min or value == 0)
+               for (value, _), product in zip(numbers, products)):
+            mean = health_number(math.fsum(products) / math.fsum(weight for _, weight in numbers))
+            uncertain_zero = mean == 0 and any(value != 0 for value, _ in numbers)
+            if (mean is not None and not uncertain_zero
+                    and min(value for value, _ in numbers) <= mean <= max(value for value, _ in numbers)):
+                return mean
+    except (OverflowError, ValueError):
+        pass
+
+    # Float inputs are exact binary rationals. Rare overflow/underflow paths
+    # need no guessed magnitude cap or arbitrary decimal precision.
+    from fractions import Fraction
+    numerator = sum((Fraction(value) * Fraction(weight) for value, weight in numbers), Fraction())
+    denominator = sum((Fraction(weight) for _, weight in numbers), Fraction())
+    mean = float(numerator / denominator)
+    # A nonzero result below float range cannot establish an observed zero.
+    return None if mean == 0 and numerator != 0 else health_number(mean)
