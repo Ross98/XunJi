@@ -336,27 +336,14 @@ class DataFreshnessService:
         self.xunji_cache = xunji_cache
 
     def get_freshness_context(self) -> dict:
-        from datetime import date
         all_dates = self.ah.get_latest_dates()
-        today = date.today().isoformat()
+        today = date.today()
 
         # Per-metric freshness
         metrics = {}
         for key, ah_type, label in KEY_AH_METRICS:
             latest = all_dates.get(ah_type)
-            if latest:
-                days_ago = (date.fromisoformat(today) - date.fromisoformat(latest)).days
-                if days_ago == 0:
-                    status = "today"
-                elif days_ago <= 3:
-                    status = "recent"
-                elif days_ago <= 7:
-                    status = "stale"
-                else:
-                    status = "expired"
-            else:
-                days_ago = None
-                status = "none"
+            days_ago, status = self._date_freshness(latest, today)
 
             tag = self._freshness_tag(status, days_ago)
             metrics[key] = {
@@ -370,17 +357,7 @@ class DataFreshnessService:
 
         # Overall AH latest
         ah_overall = self.ah.get_data_coverage()["end_date"]
-        if ah_overall:
-            ah_days_ago = (date.fromisoformat(today) - date.fromisoformat(ah_overall)).days
-            if ah_days_ago <= 3:
-                ah_status = "fresh"
-            elif ah_days_ago <= 7:
-                ah_status = "stale"
-            else:
-                ah_status = "expired"
-        else:
-            ah_days_ago = None
-            ah_status = "none"
+        ah_days_ago, ah_status = self._date_freshness(ah_overall, today, overall=True)
 
         xunji_refresh = (
             self.xunji_cache.get("_xunji_refresh_time")
@@ -399,7 +376,30 @@ class DataFreshnessService:
         }
 
     @staticmethod
+    def _date_freshness(latest, today, *, overall=False):
+        if latest is None:
+            return None, "none"
+        try:
+            parsed = date.fromisoformat(latest)
+            if parsed.isoformat() != latest:
+                raise ValueError("Noncanonical health date")
+        except (TypeError, ValueError):
+            return None, "unknown"
+        days_ago = (today - parsed).days
+        if days_ago < 0:
+            return None, "future"
+        if days_ago == 0:
+            return 0, "fresh" if overall else "today"
+        if days_ago <= 3:
+            return days_ago, "fresh" if overall else "recent"
+        return days_ago, "stale" if days_ago <= 7 else "expired"
+
+    @staticmethod
     def _freshness_tag(status: str, days_ago: Optional[int]) -> str:
+        if status == "unknown":
+            return "[日期未确认]"
+        if status == "future":
+            return "[未来日期，待核对]"
         if status in ("today", "fresh"):
             if days_ago == 0:
                 return "[今天]"
