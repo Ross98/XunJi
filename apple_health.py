@@ -430,14 +430,24 @@ def get_latest_dates(type_filter=None):
     with _conn() as conn:
         if type_filter:
             row = conn.execute(
-                "SELECT type, MAX(substr(start_date, 1, 10)) as latest FROM health_records WHERE type = ?",
+                "SELECT MAX(start_date) as latest FROM health_records WHERE type = ?",
                 (type_filter,)
             ).fetchone()
-            return {type_filter: row['latest'] or None}
+            return {type_filter: row['latest'][:10] if row['latest'] else None}
+        # Seek to the next distinct type, then its last timestamp. GROUP BY
+        # would inspect every sample even though the primary key covers both.
         rows = conn.execute(
-            "SELECT type, MAX(substr(start_date, 1, 10)) as latest FROM health_records GROUP BY type"
+            """WITH RECURSIVE metric_types(type) AS (
+                   SELECT MIN(type) FROM health_records
+                   UNION ALL
+                   SELECT (SELECT MIN(type) FROM health_records WHERE type > metric_types.type)
+                   FROM metric_types WHERE type IS NOT NULL
+               )
+               SELECT type, (SELECT MAX(start_date) FROM health_records
+                             WHERE type = metric_types.type) AS latest
+               FROM metric_types WHERE type IS NOT NULL"""
         ).fetchall()
-        return {r["type"]: r["latest"] for r in rows}
+        return {r["type"]: r["latest"][:10] if r["latest"] is not None else None for r in rows}
 
 
 def query_records_desc(type_filter: str = None,
