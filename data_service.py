@@ -78,23 +78,29 @@ def filter_body_records(records: list[dict]) -> list[dict]:
 
 
 def resolve_training_cache(cache, day: str) -> tuple[Optional[dict], Optional[bool]]:
-    """Choose one valid snapshot for every reader; mode is metadata, not a version."""
+    """Choose a canonical mode from one content/version snapshot when supported."""
     candidates = []
+    keys = {mode: f"training:{day}:{mode}" for mode in (True, False)}
+    read_many = getattr(cache, "get_many_with_mtime", None)
+    snapshots = read_many(list(keys.values())) if callable(read_many) else None
+    read_one = getattr(cache, "get_with_mtime", None)
     get_mtime = getattr(cache, "get_mtime", None)
-    for mode in (True, False):
-        key = f"training:{day}:{mode}"
-        payload = cache.get(key)
+    for mode, key in keys.items():
+        if snapshots is not None:
+            payload, version = snapshots.get(key, (None, None))
+        elif callable(read_one):
+            payload, version = read_one(key)
+        else:
+            # Legacy lightweight adapters have no atomic snapshot API.
+            payload = cache.get(key)
+            try:
+                version = get_mtime(key) if callable(get_mtime) else None
+            except (AttributeError, TypeError, ValueError):
+                version = None
         records = _response_records(payload, "trains")
         if records is None:
             continue
-        timestamp = None
-        if callable(get_mtime):
-            try:
-                timestamp = datetime.fromisoformat(get_mtime(key).replace("Z", "+00:00"))
-                if timestamp.tzinfo is None:
-                    timestamp = timestamp.replace(tzinfo=timezone.utc)
-            except (AttributeError, TypeError, ValueError):
-                pass
+        timestamp = _cache_version(version)
         candidates.append((payload, mode, timestamp, bool(records)))
     if not candidates:
         return None, None

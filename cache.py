@@ -43,6 +43,14 @@ class Cache:
     def get(self, key: str) -> Optional[dict]:
         return self.get_with_mtime(key)[0]
 
+    @staticmethod
+    def _decode_payload(raw):
+        try:
+            data = json.loads(raw)
+        except (ValueError, RecursionError):
+            return None
+        return data if isinstance(data, dict) else None
+
     def get_with_mtime(self, key: str) -> tuple[Optional[dict], Optional[str]]:
         """Read payload and version from the same SQLite row."""
         with self._conn() as conn:
@@ -51,11 +59,19 @@ class Cache:
             ).fetchone()
             if row is None:
                 return None, None
-            try:
-                data = json.loads(row["data"])
-            except (ValueError, RecursionError):
-                return None, row["mtime"]
-            return (data if isinstance(data, dict) else None), row["mtime"]
+            return self._decode_payload(row["data"]), row["mtime"]
+
+    def get_many_with_mtime(self, keys: list[str]) -> dict[str, tuple[Optional[dict], str]]:
+        """Read a small set of payloads and versions from one SQLite snapshot."""
+        keys = list(dict.fromkeys(keys))
+        if not keys:
+            return {}
+        placeholders = ",".join("?" for _ in keys)
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT key, data, mtime FROM cache WHERE key IN ({placeholders})", keys
+            ).fetchall()
+        return {row["key"]: (self._decode_payload(row["data"]), row["mtime"]) for row in rows}
 
     def mtimes_by_prefix(self, prefix: str) -> dict[str, str]:
         """List versions without loading potentially large cached payloads."""
