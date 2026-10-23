@@ -56,7 +56,7 @@
         </div>
         <div id="movementShortcuts" class="movement-shortcuts" aria-label="最近和收藏动作"></div>
         <div id="trackSummary" class="inline-kpis"></div>
-        <div id="trackState" class="inline-state" style="font-size:14px;" hidden></div>
+        <div id="trackState" class="inline-state" style="font-size:14px;" role="status" hidden></div>
         <div class="chart-container"><canvas id="trackChart"></canvas></div>
     </div>
 
@@ -372,9 +372,38 @@ const trackCtx = document.getElementById('trackChart');
 const trackState = document.getElementById('trackState');
 const trackSummary = document.getElementById('trackSummary');
 let _trackChart = null;
+let _trackRequestVersion = 0;
+let _trackController = null;
+const movementPreferenceFallback = Object.create(null);
+
+function readMovementPreference(key) {
+    if (Object.prototype.hasOwnProperty.call(movementPreferenceFallback, key)) return movementPreferenceFallback[key];
+    try { return localStorage.getItem(key); } catch (error) { return null; }
+}
+
+function saveMovementPreference(key, value) {
+    try {
+        localStorage.setItem(key, value);
+        delete movementPreferenceFallback[key];
+        return true;
+    } catch (error) {
+        movementPreferenceFallback[key] = value;
+        return false;
+    }
+}
+
+function showMovementPreferenceWarning() {
+    const note = '部分偏好仅用于本次页面，浏览器未能保存。';
+    const existing = trackState.hidden ? '' : trackState.textContent;
+    trackState.hidden = false;
+    trackState.textContent = existing.includes(note) ? existing : (existing ? existing + ' ' : '') + note;
+}
 
 function getFavoriteMovements() {
-    try { return JSON.parse(localStorage.getItem('xunji_favorite_movements') || '[]'); }
+    try {
+        const saved = JSON.parse(readMovementPreference('xunji_favorite_movements') || '[]');
+        return Array.isArray(saved) ? [...new Set(saved.filter(name => typeof name === 'string'))] : [];
+    }
     catch (error) { return []; }
 }
 
@@ -387,7 +416,7 @@ function updateFavoriteState() {
 function renderMovementShortcuts() {
     const container = document.getElementById('movementShortcuts');
     if (!container) return;
-    const recent = localStorage.getItem('xunji_recent_movement');
+    const recent = readMovementPreference('xunji_recent_movement');
     const favorites = getFavoriteMovements().filter(name=>movementNames.includes(name));
     const items = [];
     if (recent && movementNames.includes(recent)) items.push({name:recent,label:'最近'});
@@ -417,10 +446,8 @@ function renderMovementShortcuts() {
 }
 
 function renderTrack(data) {
-    if (_trackChart) _trackChart.destroy();
+    clearTrackDisplay();
     if (!data || data.dates.length === 0) {
-        trackCtx.style.display = 'none';
-        trackSummary.innerHTML = '';
         trackState.hidden = false;
         trackState.textContent = '这个动作暂无可绘制的重量记录。';
         return;
@@ -460,26 +487,68 @@ function renderTrack(data) {
     });
 }
 
+function clearTrackDisplay() {
+    if (_trackChart) { _trackChart.destroy(); _trackChart = null; }
+    trackCtx.style.display = 'none';
+    trackSummary.innerHTML = '';
+}
+
+function invalidateTrackRequest() {
+    _trackRequestVersion += 1;
+    if (_trackController) _trackController.abort();
+    _trackController = null;
+    clearTrackDisplay();
+    return _trackRequestVersion;
+}
+
 function loadTrack(movement) {
+    const version = invalidateTrackRequest();
     if (!movement || !movementNames.includes(movement)) {
         trackState.hidden = false;
         trackState.textContent = '请从建议列表选择一个动作。';
         return;
     }
+    const controller = new AbortController();
+    _trackController = controller;
+    const isCurrent = () => version === _trackRequestVersion && movementSearch.value === movement;
     trackState.hidden = false;
     trackState.textContent = '正在读取动作历史…';
-    localStorage.setItem('xunji_recent_movement', movement);
+    const saved = saveMovementPreference('xunji_recent_movement', movement);
     updateFavoriteState();
-    fetch('/training/track/' + encodeURIComponent(movement))
-        .then(r => { if (!r.ok) throw new Error('服务器返回 '+r.status); return r.json(); })
-        .then(data => renderTrack(data))
-        .catch(e => { trackState.hidden=false; trackState.textContent='读取失败：'+e.message; });
+    return fetch('/training/track/' + encodeURIComponent(movement), { signal: controller.signal })
+        .then(response => {
+            if (!isCurrent()) return null;
+            if (!response.ok) throw new Error('服务器返回 ' + response.status);
+            return response.json();
+        })
+        .then(data => {
+            if (!isCurrent()) return;
+            renderTrack(data);
+            if (!saved || Object.keys(movementPreferenceFallback).length) showMovementPreferenceWarning();
+        })
+        .catch(error => {
+            if (!isCurrent()) return;
+            trackState.hidden = false;
+            trackState.textContent = '读取失败：' + error.message + '。请重新选择动作或按 Enter 重试。';
+        })
+        .finally(() => { if (version === _trackRequestVersion) _trackController = null; });
 }
 
+window.addEventListener('pagehide', invalidateTrackRequest);
+window.addEventListener('pageshow', event => {
+    if (event.persisted && movementSearch) loadTrack(movementSearch.value);
+});
+
 if (movementSearch) {
-    const recent = localStorage.getItem('xunji_recent_movement');
+    const recent = readMovementPreference('xunji_recent_movement');
     const favorites = getFavoriteMovements();
     movementSearch.value = (recent && movementNames.includes(recent)) ? recent : (favorites.find(name=>movementNames.includes(name)) || movementNames[0] || '');
+    movementSearch.addEventListener('input', function() {
+        invalidateTrackRequest();
+        trackState.hidden = false;
+        trackState.textContent = movementNames.includes(this.value) ? '按 Enter 或选择动作以查看历史。' : '请从建议列表选择一个动作。';
+        updateFavoriteState();
+    });
     movementSearch.addEventListener('change', function() { loadTrack(this.value); });
     movementSearch.addEventListener('keydown', function(event) { if (event.key === 'Enter') loadTrack(this.value); });
     if (movementSearch.value) loadTrack(movementSearch.value);
@@ -491,8 +560,9 @@ if (favoriteButton) {
         if (!movementNames.includes(name)) return;
         const favorites = getFavoriteMovements();
         const next = favorites.includes(name) ? favorites.filter(item=>item!==name) : [name, ...favorites].slice(0,12);
-        localStorage.setItem('xunji_favorite_movements', JSON.stringify(next));
+        const saved = saveMovementPreference('xunji_favorite_movements', JSON.stringify(next));
         updateFavoriteState();
+        if (!saved || Object.keys(movementPreferenceFallback).length) showMovementPreferenceWarning();
     });
 }
 </script>
