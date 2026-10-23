@@ -51,6 +51,7 @@
         </div>
         <div class="stat-context">较90天日均 {% if step_delta > 0 %}+{% endif %}{{ step_delta }}%</div>
         {% elif health.steps_overlap %}<div class="stat-context">来源重叠，日总量未确认</div>
+        {% elif health.step_avg == 0 and health.today_steps is not none %}<div class="stat-context">日均为0，暂不比较百分比</div>
         {% else %}<div class="stat-context">总量或日均对照未确认</div>{% endif %}
         <div class="stat-caption">日均 {{ health.step_avg if health.step_avg is not none else '--' }}步 · {{ health.step_avg_days }}个可确认记录日 · <span style="white-space:nowrap;">数据日 {{ health.step_date or '暂无日期' }}</span></div>
     </div></a>
@@ -64,6 +65,7 @@
         </div>
         <div class="stat-context">较90天日均 {% if ex_delta > 0 %}+{% endif %}{{ ex_delta }}%</div>
         {% elif health.exercise_overlap %}<div class="stat-context">来源重叠，日总量未确认</div>
+        {% elif health.ex_avg == 0 and health.today_exercise is not none %}<div class="stat-context">日均为0，暂不比较百分比</div>
         {% else %}<div class="stat-context">总量或日均对照未确认</div>{% endif %}
         <div class="stat-caption">日均 {{ health.ex_avg if health.ex_avg is not none else '--' }}分钟 · {{ health.ex_avg_days }}个可确认记录日 · <span style="white-space:nowrap;">数据日 {{ health.exercise_date or '暂无日期' }}</span></div>
     </div></a>
@@ -77,6 +79,7 @@
         </div>
         <div class="stat-context">较90天日均 {% if stand_delta > 0 %}+{% endif %}{{ stand_delta }}%</div>
         {% elif health.stand_overlap %}<div class="stat-context">来源重叠，日总量未确认</div>
+        {% elif health.stand_avg == 0 and health.today_stand is not none %}<div class="stat-context">日均为0，暂不比较百分比</div>
         {% else %}<div class="stat-context">总量或日均对照未确认</div>{% endif %}
         <div class="stat-caption">日均 {{ health.stand_avg if health.stand_avg is not none else '--' }}分钟 · {{ health.stand_avg_days }}个可确认记录日 · <span style="white-space:nowrap;">数据日 {{ health.stand_date or '暂无日期' }}</span></div>
     </div></a>

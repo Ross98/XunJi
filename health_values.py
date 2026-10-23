@@ -1,6 +1,7 @@
 """Health value/time validation and read-only views; missing data never becomes zero."""
 
 from datetime import date, datetime
+from decimal import Decimal
 import math
 import re
 
@@ -9,9 +10,11 @@ def _health_timestamp_parts(value, require_timezone):
     if not isinstance(value, str):
         raise ValueError('Health timestamps must be strings')
     text = value.strip().replace('Z', '+00:00').replace(' +', '+').replace(' -', '-')
-    text = re.sub(r'([+-])(\d{2})(\d{2})(\d{2})?$',
-                  lambda m: m[1] + m[2] + ':' + m[3] + (':' + m[4] if m[4] else ''), text)
-    fraction = re.search(r'([T ]\d{2}:\d{2}:\d{2})[.,](\d+)', text)
+    if len(text) > 19 and text[-5] in '+-' and text[-4:].isdigit():
+        text = text[:-2] + ':' + text[-2:]
+    elif len(text) > 21 and text[-7] in '+-' and text[-6:].isdigit():
+        text = text[:-4] + ':' + text[-4:-2] + ':' + text[-2:]
+    fraction = re.search(r'([T ]\d{2}:\d{2}:\d{2})[.,](\d+)', text) if '.' in text or ',' in text else None
     tail = ''
     if fraction:
         digits = fraction[2]
@@ -31,17 +34,23 @@ def health_timestamp(value):
     return _health_timestamp_parts(value, True)[0]
 
 
-def health_interval(start, end, *, require_timezone=True):
-    """Validate full-precision instants before a projection truncates timestamps."""
+def health_interval_keys(start, end, *, require_timezone=True):
+    """Return comparable exact instant keys without rounding submicrosecond tails."""
     begin, begin_tail = _health_timestamp_parts(start, require_timezone)
     finish, finish_tail = _health_timestamp_parts(end, require_timezone)
     if (begin.tzinfo is None) != (finish.tzinfo is None):
         raise ValueError('Health interval timezones do not match')
-    precision = max(len(begin_tail), len(finish_tail))
-    if (finish < begin or
-            (finish == begin and finish_tail.ljust(precision, '0') < begin_tail.ljust(precision, '0'))):
+    begin_key = (begin, Decimal('0.' + begin_tail) if begin_tail else 0)
+    finish_key = (finish, Decimal('0.' + finish_tail) if finish_tail else 0)
+    if finish_key < begin_key:
         raise ValueError('Health interval ends before it starts')
-    return begin, finish
+    return begin_key, finish_key
+
+
+def health_interval(start, end, *, require_timezone=True):
+    """Validate original precision; return datetimes for legacy display projections."""
+    begin, finish = health_interval_keys(start, end, require_timezone=require_timezone)
+    return begin[0], finish[0]
 
 
 def health_number(value, scale=1):

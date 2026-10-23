@@ -187,3 +187,13 @@ def test_recovery_baseline_uses_exact_thirty_days_and_preserves_zero(
     recovery = render_plan_context()['recovery']
     assert recovery['hrv'] == 0
     assert recovery['hrv_avg'] == 20
+
+
+def test_bad_step_interval_does_not_become_confirmed_recovery_input(render_plan_context, isolated_health_db):
+    with isolated_health_db._conn() as conn:
+        conn.execute('INSERT INTO health_records (type,start_date,end_date,value,source_name) VALUES (?,?,?,?,?)',
+                     ('HKQuantityTypeIdentifierStepCount', '2026-10-22 08:00:00 +0800',
+                      '2026-10-22 07:00:00 +0800', 100, 'synthetic'))
+    recovery = render_plan_context()['recovery']
+    assert recovery['steps'] is None
+    assert recovery['steps_overlap'] is False

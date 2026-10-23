@@ -134,7 +134,8 @@ def test_daily_health_total_reports_actual_fallback_date():
         def query_records(metric, start, end):
             if start == "2026-08-08":
                 return []
-            return [{"value": 40, "start_date": start}, {"value": 60, "start_date": start}]
+            return [{"value": 40, "start_date": start+' 08:00:00 +0800', 'end_date':start+' 09:00:00 +0800'},
+                    {"value": 60, "start_date": start+' 09:00:00 +0800', 'end_date':start+' 10:00:00 +0800'}]
 
         @staticmethod
         def get_latest_dates(metric):
@@ -231,7 +232,7 @@ def test_dashboard_loader_does_not_touch_data_services(monkeypatch):
 def test_observed_zero_activity_does_not_fall_back_to_older_day():
     class Health:
         def query_records(self, metric, start, end):
-            return [{'start_date': start, 'value': 0}]
+            return [{'start_date': start+' 08:00:00 +0800', 'end_date':start+' 08:00:00 +0800', 'value': 0}]
 
         def get_latest_dates(self, metric):
             raise AssertionError('observed zero must not request a fallback date')
