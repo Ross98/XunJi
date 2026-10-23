@@ -34,7 +34,7 @@ def _response_records(data: object, key: str, *, decode_json: bool = False,
         if decode_json and isinstance(records, str):
             try:
                 records = json.loads(records)
-            except ValueError:
+            except (ValueError, RecursionError):
                 continue
         if isinstance(records, list):
             if all(isinstance(row, dict) for row in records):

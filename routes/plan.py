@@ -26,7 +26,7 @@ def _load_plan_preferences() -> dict:
         try:
             saved = json.loads(PLAN_CONFIG_PATH.read_text(encoding="utf-8"))
             return normalize_plan_preferences(saved)
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, RecursionError):
             logger.exception("Unable to load plan preferences")
     return preferences
 

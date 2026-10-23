@@ -26,7 +26,7 @@ def _load_body_config() -> dict:
                 saved = json.load(f)
             if isinstance(saved, dict):
                 config = saved
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             logger.exception("Unable to load body preferences")
     try:
         height = float(config.get("height_cm", 170))

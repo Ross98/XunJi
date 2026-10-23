@@ -46,7 +46,7 @@ class Cache:
                 return None
             try:
                 data = json.loads(row["data"])
-            except (json.JSONDecodeError, UnicodeDecodeError):
+            except (ValueError, RecursionError):
                 return None
             return data if isinstance(data, dict) else None
 
