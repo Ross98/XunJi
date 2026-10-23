@@ -1,4 +1,10 @@
 {% extends "base.html" %}
+{% macro workout_measurement(value, unit, missing='未记录') -%}
+{%- if value is none -%}{{ missing }}
+{%- else -%}
+{{ "%g"|format(value) }}{%- if unit in ['min', 's', 'h'] -%}{{ {'min': '分钟', 's': '秒', 'h': '小时'}[unit] }}{% elif unit %} {{ unit }}{% else %}（单位未记录）{% endif %}
+{%- endif -%}
+{%- endmacro %}
 {% block title %}健康数据 - 训记分析{% endblock %}
 {% block content %}
 {% include '_freshness_bar.html' %}
@@ -76,7 +82,7 @@
         <div class="card">
             <div class="card-title">近期 Apple Watch 训练</div>
             {% if workouts %}<div class="compact-list">
-            {% for workout in workouts %}<div><strong>{{ workout_label(workout.workout_activity_type) }}</strong><span>{{ workout.start_date[:10] }} · {{ "%.0f"|format(workout.duration or 0) }}分钟{% if workout.total_energy_burned %} · {{ "%.0f"|format(workout.total_energy_burned) }} kcal{% endif %}</span></div>{% endfor %}
+            {% for workout in workouts %}<div><strong>{{ workout_label(workout.workout_activity_type) }}</strong><span>{{ workout.start_date[:10] }} · {{ workout_measurement(workout.duration, workout.duration_unit, '时长未记录') }}{% if workout.total_energy_burned is not none %} · {{ workout_measurement(workout.total_energy_burned, workout.total_energy_burned_unit) }}{% endif %}</span></div>{% endfor %}
             </div>{% else %}<div class="inline-state">暂无近期训练</div>{% endif %}
         </div>
     </div>
