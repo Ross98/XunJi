@@ -1,6 +1,6 @@
 from typing import Any, Optional, Union
 import math
-from health_values import health_weighted_mean, health_number, finite_sum, finite_product_sum
+from health_values import health_weighted_mean, health_number, health_mean, finite_sum, finite_product_sum
 
 def _safe_float(v: Any) -> float:
     if isinstance(v, bool):
@@ -541,34 +541,23 @@ def get_latest_weight(records: list[dict]) -> Optional[float]:
 
 
 def body_stats(records: list[dict]) -> dict[str, dict[str, float]]:
-    """Period stats: min/max/avg for weight and bodyfat."""
-    from typing import Any as _Any
-
-    stats: dict[str, dict[str, float]] = {}
+    """Finite period statistics; invalid neighbors cannot poison a metric."""
+    values = {}
     for rec in records:
-        t = rec.get("type", "")
-        v = rec.get("value")
-        if t and v is not None:
-            try:
-                val = float(v)
-            except (ValueError, TypeError):
-                continue
-            if t not in stats:
-                stats[t] = {"min": val, "max": val, "sum": val, "count": 1}
-            else:
-                s = stats[t]
-                s["min"] = min(s["min"], val)
-                s["max"] = max(s["max"], val)
-                s["sum"] += val
-                s["count"] += 1
-    result: dict[str, dict[str, float]] = {}
-    for t, s in stats.items():
-        result[t] = {
-            "min": round(s["min"], 2),
-            "max": round(s["max"], 2),
-            "avg": round(s["sum"] / s["count"], 2),
-        }
-    return result
+        if not isinstance(rec, dict):
+            continue
+        metric, raw = rec.get("type"), rec.get("value")
+        if not isinstance(metric, str) or not metric or isinstance(raw, bool):
+            continue
+        try:
+            value = health_number(float(raw))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if value is not None:
+            values.setdefault(metric, []).append(value)
+    return {metric: {"min": round(min(samples), 2), "max": round(max(samples), 2),
+                     "avg": round(health_mean(samples), 2)}
+            for metric, samples in values.items()}
 
 
 def body_daily_records(records: list[dict]) -> list[dict]:
@@ -587,15 +576,16 @@ def body_daily_records(records: list[dict]) -> list[dict]:
     return sorted(daily.values(), key=lambda rec: rec.get("datestr", ""))
 
 
-def body_changes(records: list[dict]) -> dict[str, float]:
+def body_changes(records: list[dict]) -> dict[str, Optional[float]]:
     """Compare daily display values; the first day has no prior-day baseline."""
-    changes: dict[str, float] = {}
+    changes: dict[str, Optional[float]] = {}
     prev: dict[str, float] = {}
     for rec in body_daily_records(records):
         t, val = rec["type"], float(rec["value"])
         key = f"{t}:{rec.get('datestr', '')}"
         if t in prev:
-            changes[key] = round(val - prev[t], 2)
+            difference = health_number(val - prev[t])
+            changes[key] = round(difference, 2) if difference is not None else None
         prev[t] = val
     return changes
 
@@ -604,13 +594,21 @@ def calculate_bmi(
     weight_kg: Optional[Union[float, str]], height_cm: Union[float, str] = 170.0
 ) -> Optional[float]:
     """BMI = weight(kg) / (height(m))². Default height 170cm."""
-    if weight_kg is None:
+    if isinstance(weight_kg, bool) or isinstance(height_cm, bool):
         return None
     try:
-        weight = float(weight_kg)
-        height_m = float(height_cm) / 100.0
-    except (TypeError, ValueError):
+        weight = health_number(float(weight_kg))
+        height = health_number(float(height_cm))
+    except (TypeError, ValueError, OverflowError):
         return None
-    if height_m <= 0:
+    if weight is None or height is None or weight < 0 or height <= 0:
         return None
-    return round(weight / (height_m * height_m), 1)
+    if weight == 0:
+        return 0.0
+    height_m = height / 100
+    if height_m == 0:
+        return None
+    value = health_number(weight / height_m / height_m)
+    if value is None or value == 0:
+        return None
+    return round(value, 1)

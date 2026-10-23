@@ -12,6 +12,7 @@ from app_state import get_cache, get_jinja_env, get_data_service
 from data_service import DataFreshnessService, DataService, extract_body_records, filter_body_records
 from analysis import summarize_body, body_latest, body_stats, body_changes, body_daily_records, calculate_bmi
 from local_settings import write_json_atomic
+from health_values import health_number
 from async_work import run_joined_threadpool
 
 router = APIRouter(tags=["body"])
@@ -221,30 +222,15 @@ async def body_page(
         })
     # Period change (first vs last in range)
     daily_records = body_daily_records(records_merged)
-    w_chrono = sorted(
-        [r for r in daily_records if r.get("type") == "weight"],
-        key=lambda x: x.get("datestr", ""),
-    )
-    period_weight_change = None
-    period_bf_change = None
-    if len(w_chrono) >= 2:
-        try:
-            period_weight_change = round(
-                float(w_chrono[-1]["value"]) - float(w_chrono[0]["value"]), 2
-            )
-        except (ValueError, TypeError):
-            pass
-    bf_chrono = sorted(
-        [r for r in daily_records if r.get("type") == "bodyfat"],
-        key=lambda x: x.get("datestr", ""),
-    )
-    if len(bf_chrono) >= 2:
-        try:
-            period_bf_change = round(
-                float(bf_chrono[-1]["value"]) - float(bf_chrono[0]["value"]), 2
-            )
-        except (ValueError, TypeError):
-            pass
+    def period_change(metric):
+        series = [record for record in daily_records if record.get("type") == metric]
+        if len(series) < 2:
+            return None
+        difference = health_number(float(series[-1]["value"]) - float(series[0]["value"]))
+        return round(difference, 2) if difference is not None else None
+
+    period_weight_change = period_change("weight")
+    period_bf_change = period_change("bodyfat")
 
     env = get_jinja_env()
     tmpl = env.get_template("body.html")
