@@ -3,6 +3,7 @@
 from typing import Any, Optional
 from datetime import date, timedelta
 from analysis import classify_bodypart, iter_movement_sets, movement_is_unfinished, training_is_unfinished
+from health_values import health_number
 
 
 DEFAULT_PLAN_PREFERENCES = {
@@ -76,10 +77,17 @@ def normalize_plan_preferences(preferences: Optional[dict], *, strict: bool = Fa
 
 def _assess_recovery(recovery: Optional[dict]) -> dict:
     """Turn available Apple Health context into a cautious readiness summary."""
-    recovery = recovery or {}
+    recovery = recovery if isinstance(recovery, dict) else {}
+
+    def number(key):
+        value = health_number(recovery.get(key))
+        return value if value is not None and value >= 0 else None
+
     score = 100
     reasons = []
-    sleep = recovery.get("sleep_hours")
+    sleep = number("sleep_hours")
+    if recovery.get("sleep_conflict") or recovery.get("sleep_time_unconfirmed"):
+        sleep = None
     if sleep is not None:
         if sleep < 5.5:
             score -= 35
@@ -90,9 +98,10 @@ def _assess_recovery(recovery: Optional[dict]) -> dict:
         else:
             reasons.append("睡眠充足")
 
-    hrv = recovery.get("hrv")
-    hrv_avg = recovery.get("hrv_avg")
-    if hrv and hrv_avg:
+    hrv = number("hrv")
+    hrv_avg = number("hrv_avg")
+    has_hrv = hrv is not None and hrv_avg is not None and hrv_avg > 0
+    if has_hrv:
         ratio = hrv / hrv_avg
         if ratio < 0.8:
             score -= 30
@@ -103,9 +112,10 @@ def _assess_recovery(recovery: Optional[dict]) -> dict:
         else:
             reasons.append("HRV 接近或高于基线")
 
-    rhr = recovery.get("rhr")
-    rhr_avg = recovery.get("rhr_avg")
-    if sleep is None and not (hrv and hrv_avg) and not (rhr and rhr_avg):
+    rhr = number("rhr")
+    rhr_avg = number("rhr_avg")
+    has_rhr = rhr is not None and rhr_avg is not None and rhr_avg > 0
+    if sleep is None and not has_hrv and not has_rhr:
         return {
             "score": None,
             "status": "数据不足",
@@ -113,7 +123,7 @@ def _assess_recovery(recovery: Optional[dict]) -> dict:
             "action": "train",
             "reasons": ["暂无足够的当日恢复数据，按训练间隔安排"],
         }
-    if rhr and rhr_avg:
+    if has_rhr:
         delta = rhr - rhr_avg
         if delta >= 8:
             score -= 25

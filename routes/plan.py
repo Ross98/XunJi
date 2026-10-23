@@ -35,6 +35,13 @@ def _save_plan_preferences(preferences: dict):
     write_json_atomic(PLAN_CONFIG_PATH, preferences)
 
 
+def _recovery_display_values(recovery):
+    """Round only the rendered copy; assessment must retain measurement precision."""
+    places = {"sleep_hours": 1, "hrv": 0, "hrv_avg": 0, "rhr": 0, "rhr_avg": 0}
+    return {key: round(value, places[key]) if key in places else value
+            for key, value in recovery.items()}
+
+
 @router.get("/plan", response_class=HTMLResponse)
 async def plan_page(request: Request):
     today = date.today().isoformat()
@@ -68,7 +75,7 @@ async def plan_page(request: Request):
             recovery["sleep_conflict"] = bool(sl.get("has_conflict") or sl.get("Conflict"))
             recovery["sleep_time_unconfirmed"] = bool(sl.get("time_unconfirmed"))
             if st is not None:
-                recovery["sleep_hours"] = round(st / 60, 1)
+                recovery["sleep_hours"] = st / 60
                 recovery["sleep_deep_pct"] = round(sl.get("AsleepDeep", 0) / st * 100, 0)
                 recovery["sleep_rem_pct"] = round(sl.get("AsleepREM", 0) / st * 100, 0)
                 recovery["sleep_core_pct"] = round(sl.get("AsleepCore", 0) / st * 100, 0)
@@ -82,10 +89,10 @@ async def plan_page(request: Request):
                 current = [row for row in samples if row["start_date"][:10] == today]
                 # Keep the latest missing sample missing; do not revive an earlier value.
                 if current and current[-1]["value"] is not None:
-                    recovery[key] = round(current[-1]["value"], 0)
+                    recovery[key] = current[-1]["value"]
                     mean = health_mean(row["value"] for row in samples)
                     if mean is not None:
-                        recovery[key + "_avg"] = round(mean, 0)
+                        recovery[key + "_avg"] = mean
 
             # Activity
             today_str = date.today().isoformat()
@@ -112,7 +119,7 @@ async def plan_page(request: Request):
         request=request,
         plan=plan,
         summary=summary,
-        recovery=recovery,
+        recovery=_recovery_display_values(recovery),
         preferences=preferences,
         today=today,
         days=30,

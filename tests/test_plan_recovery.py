@@ -197,3 +197,38 @@ def test_bad_step_interval_does_not_become_confirmed_recovery_input(render_plan_
     recovery = render_plan_context()['recovery']
     assert recovery['steps'] is None
     assert recovery['steps_overlap'] is False
+
+
+@pytest.mark.parametrize('kind,score,reason', [
+    ('hrv_fraction', 70, 'HRV 低于30日基线'),
+    ('hrv_zero', 70, 'HRV 低于30日基线'),
+    ('rhr_fraction', 90, '静息心率略高'),
+    ('sleep_fraction', 65, '睡眠明显不足'),
+])
+def test_route_scores_original_measurements_before_display_rounding(
+    render_plan_context, isolated_health_db, kind, score, reason
+):
+    ah = isolated_health_db
+    if kind == 'hrv_fraction':
+        add_record(ah, 'HeartRateVariabilitySDNN', '2026-10-21', 48.4)
+        add_record(ah, 'HeartRateVariabilitySDNN', '2026-10-22', 31.6)
+    elif kind == 'hrv_zero':
+        add_record(ah, 'HeartRateVariabilitySDNN', '2026-10-21', 40)
+        add_record(ah, 'HeartRateVariabilitySDNN', '2026-10-22', 0)
+    elif kind == 'rhr_fraction':
+        add_record(ah, 'RestingHeartRate', '2026-10-21', 45)
+        add_record(ah, 'RestingHeartRate', '2026-10-22', 60.6)
+    else:
+        add_sleep(ah, '2026-10-21 22:00:00 +0800', '2026-10-22 03:29:24 +0800')
+    before = ah.query_records()
+    context = render_plan_context()
+    assert context['plan']['readiness']['score'] == score
+    assert reason in context['plan']['readiness']['reasons']
+    displayed = {
+        'hrv_fraction': {'hrv': 32, 'hrv_avg': 40},
+        'hrv_zero': {'hrv': 0, 'hrv_avg': 20},
+        'rhr_fraction': {'rhr': 61, 'rhr_avg': 53},
+        'sleep_fraction': {'sleep_hours': 5.5},
+    }[kind]
+    assert all(context['recovery'][key] == value for key, value in displayed.items())
+    assert ah.query_records() == before
