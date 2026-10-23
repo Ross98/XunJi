@@ -7,10 +7,9 @@ import threading
 import logging
 import stat
 
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse
-from fastapi.concurrency import run_in_threadpool
-from async_work import run_joined_threadpool as _run_import_worker
+from async_work import run_joined_threadpool
 from app_state import get_cache, get_jinja_env
 from data_service import DataFreshnessService
 from sleep_stats import confirmed_sleep_minutes
@@ -146,7 +145,7 @@ async def _run_import_job():
         _set_import_state(processed=processed, message="正在解析并写入新记录")
 
     try:
-        total = await _run_import_worker(
+        total = await run_joined_threadpool(
             ah.import_all,
             cache=get_cache(),
             progress_callback=progress,
@@ -236,19 +235,20 @@ def _build_body_table(body_mass: list[dict], body_fat: list[dict], max_rows: int
 @router.get("/health", response_class=HTMLResponse)
 async def health_page(request: Request):
     """健康数据总览页面"""
-    return await run_in_threadpool(_render_health_page, request)
+    return await run_joined_threadpool(_render_health_page, request=request)
 
 
 def _render_health_page(request: Request):
     """Read SQLite and render together without blocking other requests."""
+    reference_day = date.today()
     env = get_jinja_env()
     tmpl = env.get_template("health.html")
     export = _xml_export_info()
     stats = ah.get_import_count(cache=get_cache())
     imported = any(stats[key] > 0 for key in ("total_records", "total_workouts", "total_sleep"))
 
-    end = date.today().isoformat()
-    start = (date.today() - timedelta(days=90)).isoformat()
+    end = reference_day.isoformat()
+    start = (reference_day - timedelta(days=89)).isoformat()
 
     hrv = _health_metric_records("HKQuantityTypeIdentifierHeartRateVariabilitySDNN", start, end)
     resting_hr = _health_metric_records("HKQuantityTypeIdentifierRestingHeartRate", start, end)
@@ -321,7 +321,7 @@ def _render_health_page(request: Request):
         coverage=coverage,
         hozz=_hozz_status_context(),
         database_size_mb=round(ah.HEALTH_DB_PATH.stat().st_size / 1024 / 1024, 1) if ah.HEALTH_DB_PATH.exists() else 0,
-        today=date.today(),
+        today=reference_day,
     ))
 
 
@@ -331,7 +331,7 @@ async def trigger_import():
     with _import_state_lock:
         if _import_state["status"] == "running":
             return {"status": "busy", "message": "Apple Health 数据正在导入"}
-    export = await run_in_threadpool(_xml_export_info)
+    export = await run_joined_threadpool(_xml_export_info)
     with _import_state_lock:
         if _import_state["status"] == "running":
             return {"status": "busy", "message": "Apple Health 数据正在导入"}
@@ -354,14 +354,14 @@ async def trigger_import():
 
 @router.get("/health/import/status")
 async def import_status():
-    export = await run_in_threadpool(_xml_export_info)
+    export = await run_joined_threadpool(_xml_export_info)
     with _import_state_lock:
         return dict(_import_state, export_available=export["available"])
 
 
 async def _run_hozz_job():
     try:
-        result = await _run_import_worker(
+        result = await run_joined_threadpool(
             hs.sync, cache=get_cache(), cancel_event=_import_cancel_event)
         if result["status"] == "cancelled":
             status, message = "cancelled", "Hozz 同步已停止"
@@ -395,7 +395,7 @@ async def trigger_hozz_sync():
 
 @router.get("/health/sync/status")
 async def hozz_sync_status():
-    return await run_in_threadpool(_hozz_status_context)
+    return await run_joined_threadpool(_hozz_status_context)
 
 
 def _hozz_status_context():
@@ -446,6 +446,31 @@ async def stop_health_background_tasks() -> None:
     )
 
 
+def _validate_health_window(start, end):
+    """Public queries use inclusive calendar days, never silently truncated times."""
+    for value in (start, end):
+        if value is None:
+            continue
+        try:
+            valid = date.fromisoformat(value).isoformat() == value
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
+            raise HTTPException(status_code=422, detail="健康查询日期须为有效的 YYYY-MM-DD 日期")
+    if start is not None and end is not None and start > end:
+        raise HTTPException(status_code=422, detail="起始日期不能晚于结束日期")
+
+
+def _read_health_data(metric, start, end, limit):
+    records = ah.query_records(metric, start, end, limit)
+    return {"data": _health_numeric_rows(records, ("value",))}
+
+
+def _read_health_workouts(activity, start, end, limit):
+    records = ah.query_workouts(activity, start, end, limit)
+    return {"data": _health_workout_rows(records)}
+
+
 @router.get("/health/data")
 async def health_data(
     metric: str = Query("HKQuantityTypeIdentifierHeartRateVariabilitySDNN"),
@@ -453,8 +478,8 @@ async def health_data(
     end: str = Query(None),
     limit: int = Query(100, ge=1, le=1000),
 ):
-    records = await run_in_threadpool(ah.query_records, metric, start, end, limit)
-    return {"data": _health_numeric_rows(records, ("value",))}
+    _validate_health_window(start, end)
+    return await run_joined_threadpool(_read_health_data, metric=metric, start=start, end=end, limit=limit)
 
 
 @router.get("/health/workouts")
@@ -464,5 +489,5 @@ async def health_workouts(
     end: str = Query(None),
     limit: int = Query(50, ge=1, le=1000),
 ):
-    recs = await run_in_threadpool(ah.query_workouts, activity, start, end, limit)
-    return {"data": _health_workout_rows(recs)}
+    _validate_health_window(start, end)
+    return await run_joined_threadpool(_read_health_workouts, activity=activity, start=start, end=end, limit=limit)
