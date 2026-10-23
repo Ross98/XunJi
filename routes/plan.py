@@ -1,5 +1,6 @@
 """训练规划路由"""
 from datetime import date, timedelta
+from threading import Lock
 import json
 import logging
 from pathlib import Path
@@ -19,6 +20,7 @@ from health_values import metric_records_view, health_mean
 router = APIRouter(tags=["plan"])
 logger = logging.getLogger(__name__)
 PLAN_CONFIG_PATH = Path(__file__).resolve().parent.parent / "plan_config.json"
+_settings_lock = Lock()
 
 
 def _load_plan_preferences() -> dict:
@@ -134,17 +136,23 @@ def _render_plan_page(request: Request):
 
 @router.post("/plan/settings")
 async def update_plan_settings(data: dict):
-    preferences = _load_plan_preferences()
-    for key in preferences:
-        if key in data:
-            preferences[key] = data[key]
-    try:
-        preferences = normalize_plan_preferences(preferences, strict=True)
-    except ValueError:
-        return {"status": "error", "message": "训练偏好格式不正确：天数和时长需为数字，其余项目需为文字"}
-    try:
-        _save_plan_preferences(preferences)
-    except OSError:
-        logger.exception("Unable to save plan preferences")
-        return {"status": "error", "message": "训练偏好保存失败，请检查文件权限或磁盘空间后重试"}
-    return {"status": "ok", "preferences": preferences}
+    return await run_joined_threadpool(_update_plan_settings, data=data)
+
+
+def _update_plan_settings(data: dict):
+    # Keep partial read/merge/write updates serialized in this process.
+    with _settings_lock:
+        preferences = _load_plan_preferences()
+        for key in preferences:
+            if key in data:
+                preferences[key] = data[key]
+        try:
+            preferences = normalize_plan_preferences(preferences, strict=True)
+        except ValueError:
+            return {"status": "error", "message": "训练偏好格式不正确：天数和时长需为数字，其余项目需为文字"}
+        try:
+            _save_plan_preferences(preferences)
+        except OSError:
+            logger.exception("Unable to save plan preferences")
+            return {"status": "error", "message": "训练偏好保存失败，请检查文件权限或磁盘空间后重试"}
+        return {"status": "ok", "preferences": preferences}

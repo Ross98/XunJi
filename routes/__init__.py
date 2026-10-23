@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.concurrency import run_in_threadpool
+from async_work import run_joined_threadpool
 
 from shutdown_service import schedule_shutdown
 from request_shutdown import RequestShutdownMiddleware, ShutdownRequests
@@ -43,8 +43,7 @@ def register_routes(app: FastAPI):
     app.include_router(plan.router)
     app.include_router(health.router)
 
-    @app.post("/admin/clear-cache")
-    async def clear_cache():
+    def clear_cache_sync():
         try:
             from app_state import get_cache
             c = get_cache()
@@ -54,6 +53,10 @@ def register_routes(app: FastAPI):
             return {"status": "ok"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    @app.post("/admin/clear-cache")
+    async def clear_cache():
+        return await run_joined_threadpool(clear_cache_sync)
 
     def to_bj(ts):
         """Convert aware timestamps to Beijing time; legacy naive values are local."""
@@ -76,7 +79,7 @@ def register_routes(app: FastAPI):
 
     @app.get("/admin/refresh-times")
     async def refresh_times():
-        return await run_in_threadpool(read_refresh_times)
+        return await run_joined_threadpool(read_refresh_times)
 
     @app.post("/admin/shutdown", status_code=status.HTTP_202_ACCEPTED)
     async def shutdown_project(request: Request):

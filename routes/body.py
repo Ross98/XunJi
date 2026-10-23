@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from threading import Lock
 
 import json
 import logging
@@ -11,11 +12,13 @@ from app_state import get_cache, get_jinja_env, get_data_service
 from data_service import DataFreshnessService, DataService, extract_body_records, filter_body_records
 from analysis import summarize_body, body_latest, body_stats, body_changes, body_daily_records, calculate_bmi
 from local_settings import write_json_atomic
+from async_work import run_joined_threadpool
 
 router = APIRouter(tags=["body"])
 logger = logging.getLogger(__name__)
 
 BODY_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "body_config.json")
+_settings_lock = Lock()
 
 
 def _load_body_config() -> dict:
@@ -279,20 +282,25 @@ async def body_page(
 
 @router.post("/body/settings")
 async def update_body_settings(data: dict):
-    config = _load_body_config()
-    if "height_cm" in data:
-        h = data["height_cm"]
-        if isinstance(h, (int, float)) and 100 <= h <= 250:
-            config["height_cm"] = round(float(h), 1)
-        else:
-            return {"status": "error", "message": "身高需在100–250 cm之间"}
-    try:
-        _save_body_config(config)
-    except OSError:
-        logger.exception("Unable to save body preferences")
-        return {"status": "error", "message": "身高保存失败，请检查文件权限或磁盘空间后重试"}
-    return {"status": "ok"}
+    return await run_joined_threadpool(_update_body_settings, data=data)
 
+
+def _update_body_settings(data: dict):
+    # Keep partial read/merge/write updates serialized in this process.
+    with _settings_lock:
+        config = _load_body_config()
+        if "height_cm" in data:
+            h = data["height_cm"]
+            if isinstance(h, (int, float)) and 100 <= h <= 250:
+                config["height_cm"] = round(float(h), 1)
+            else:
+                return {"status": "error", "message": "身高需在100–250 cm之间"}
+        try:
+            _save_body_config(config)
+        except OSError:
+            logger.exception("Unable to save body preferences")
+            return {"status": "error", "message": "身高保存失败，请检查文件权限或磁盘空间后重试"}
+        return {"status": "ok"}
 
 
 def _build_table_data(records: list[dict], changes: dict[str, float], ah_dates: set = None, height_cm: float = 170.0) -> list[dict]:
