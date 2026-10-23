@@ -138,3 +138,52 @@ def test_overlapping_steps_are_not_treated_as_confirmed_total(render_plan_contex
     recovery = render_plan_context()['recovery']
     assert recovery['steps'] is None
     assert recovery['steps_overlap'] is True
+
+
+@pytest.mark.parametrize('bad_metric,bad_key,good_metric,good_key', [
+    ('HeartRateVariabilitySDNN','hrv','RestingHeartRate','rhr'),
+    ('RestingHeartRate','rhr','HeartRateVariabilitySDNN','hrv'),
+])
+@pytest.mark.parametrize('bad', [None, 'bad', float('inf'), float('-inf')])
+def test_invalid_metric_cannot_skip_other_current_recovery_inputs(
+    render_plan_context, isolated_health_db, bad_metric, bad_key, good_metric, good_key, bad
+):
+    import json
+    ah = isolated_health_db
+    add_record(ah, bad_metric, '2026-10-22', bad)
+    add_record(ah, good_metric, '2026-10-22', 60)
+    add_record(ah, 'StepCount', '2026-10-22', 100)
+    add_sleep(ah, '2026-10-21 22:00:00 +0800', '2026-10-22 04:00:00 +0800')
+    before = ah.query_records()
+    recovery = render_plan_context()['recovery']
+    assert bad_key not in recovery
+    assert bad_key+'_avg' not in recovery
+    assert recovery[good_key] == 60
+    assert recovery['steps'] == 100
+    assert recovery['sleep_hours'] == 6
+    json.dumps(recovery, allow_nan=False)
+    assert ah.query_records() == before
+
+
+def test_latest_missing_measurement_is_not_replaced_by_earlier_same_day_value(
+    render_plan_context, isolated_health_db
+):
+    ah = isolated_health_db
+    add_record(ah, 'HeartRateVariabilitySDNN', '2026-10-22', 40)
+    with ah._conn() as conn:
+        conn.execute('INSERT INTO health_records(type,start_date,end_date,value) VALUES (?,?,?,?)',
+            ('HKQuantityTypeIdentifierHeartRateVariabilitySDNN','2026-10-22 20:00:00 +0800',
+             '2026-10-22 20:01:00 +0800',None))
+    assert 'hrv' not in render_plan_context()['recovery']
+
+
+def test_recovery_baseline_uses_exact_thirty_days_and_preserves_zero(
+    render_plan_context, isolated_health_db
+):
+    ah = isolated_health_db
+    add_record(ah, 'HeartRateVariabilitySDNN', '2026-09-22', 999)
+    add_record(ah, 'HeartRateVariabilitySDNN', '2026-09-23', 40)
+    add_record(ah, 'HeartRateVariabilitySDNN', '2026-10-22', 0)
+    recovery = render_plan_context()['recovery']
+    assert recovery['hrv'] == 0
+    assert recovery['hrv_avg'] == 20

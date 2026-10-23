@@ -13,6 +13,7 @@ from planner import DEFAULT_PLAN_PREFERENCES, generate_plan, normalize_plan_pref
 from movements_cn import apply_movement_cn_to_trains
 from local_settings import write_json_atomic
 from sleep_stats import confirmed_sleep_minutes
+from health_values import metric_records_view, health_mean
 
 router = APIRouter(tags=["plan"])
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ async def plan_page(request: Request):
     try:
         import apple_health as ah
         if ah.HEALTH_DB_PATH.exists():
-            start = (date.today() - timedelta(days=30)).isoformat()
+            start = (date.today() - timedelta(days=29)).isoformat()
 
             # Sleep
             # Count sleep ending today, including stages spanning midnight.
@@ -72,24 +73,18 @@ async def plan_page(request: Request):
                 recovery["sleep_core_pct"] = round(sl.get("AsleepCore", 0) / st * 100, 0)
                 recovery["sleep_awake"] = sl.get("Awake", 0)
 
-            # HRV
-            hrv = ah.query_records("HKQuantityTypeIdentifierHeartRateVariabilitySDNN", start, today)
-            current_hrv = [r for r in hrv if r["start_date"][:10] == today and r.get("value")]
-            if current_hrv:
-                recovery["hrv"] = round(current_hrv[-1]["value"], 0)
-                # 30d avg
-                vals = [r["value"] for r in hrv if r.get("value")]
-                if vals:
-                    recovery["hrv_avg"] = round(sum(vals) / len(vals), 0)
-
-            # Resting HR
-            rhr = ah.query_records("HKQuantityTypeIdentifierRestingHeartRate", start, today)
-            current_rhr = [r for r in rhr if r["start_date"][:10] == today and r.get("value")]
-            if current_rhr:
-                recovery["rhr"] = round(current_rhr[-1]["value"], 0)
-                rhr_values = [record["value"] for record in rhr if record.get("value")]
-                if rhr_values:
-                    recovery["rhr_avg"] = round(sum(rhr_values) / len(rhr_values), 0)
+            for key, metric in (
+                ("hrv", "HKQuantityTypeIdentifierHeartRateVariabilitySDNN"),
+                ("rhr", "HKQuantityTypeIdentifierRestingHeartRate"),
+            ):
+                samples = metric_records_view(ah.query_records(metric, start, today))
+                current = [row for row in samples if row["start_date"][:10] == today]
+                # Keep the latest missing sample missing; do not revive an earlier value.
+                if current and current[-1]["value"] is not None:
+                    recovery[key] = round(current[-1]["value"], 0)
+                    mean = health_mean(row["value"] for row in samples)
+                    if mean is not None:
+                        recovery[key + "_avg"] = round(mean, 0)
 
             # Activity
             today_str = date.today().isoformat()
