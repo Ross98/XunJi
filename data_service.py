@@ -10,6 +10,7 @@ from typing import Optional
 
 from api_client import XunjiAPIClient
 from cache import Cache
+from training_records import training_records_view
 
 
 @dataclass
@@ -18,12 +19,14 @@ class _BodyRequest:
     waiters: int = 0
 
 
-def _response_records(data: object, key: str, *, decode_json: bool = False) -> Optional[list[dict]]:
+def _response_records(data: object, key: str, *, decode_json: bool = False,
+                      skip_bad_rows: bool = False) -> Optional[list[dict]]:
     """Validate both API envelopes without confusing errors with empty results."""
     if not isinstance(data, dict) or data.get("success") is False:
         return None
     res = data.get("res")
     containers = [res, data] if isinstance(res, dict) else [data]
+    recovered = None
     for container in containers:
         if key not in container:
             continue
@@ -33,17 +36,25 @@ def _response_records(data: object, key: str, *, decode_json: bool = False) -> O
                 records = json.loads(records)
             except ValueError:
                 continue
-        if isinstance(records, list) and all(isinstance(row, dict) for row in records):
-            return records
-    return None
+        if isinstance(records, list):
+            if all(isinstance(row, dict) for row in records):
+                return records
+            if skip_bad_rows and not recovered:
+                recovered = [row for row in records if isinstance(row, dict)]
+    return recovered
 
 
 def extract_trains(data: object) -> list[dict]:
-    return _response_records(data, "trains") or []
+    return training_records_view(_response_records(data, "trains", skip_bad_rows=True) or [])
+
+
+def _valid_training_response(data: object) -> bool:
+    records = _response_records(data, "trains")
+    return records is not None and training_records_view(records) == records
 
 
 def extract_body_records(data: object) -> list[dict]:
-    return filter_body_records(_response_records(data, "records", decode_json=True) or [])
+    return filter_body_records(_response_records(data, "records", decode_json=True, skip_bad_rows=True) or [])
 
 
 def filter_body_records(records: list[dict]) -> list[dict]:
@@ -133,13 +144,13 @@ class DataService:
 
     @staticmethod
     def _is_valid_training_response(data: object) -> bool:
-        return _response_records(data, "trains") is not None
+        return _valid_training_response(data)
 
     async def get_training(self, date: str, full: bool = False, *, force_refresh: bool = False) -> dict:
         cache_key = f"training:{date}:{full}"
         cached, cached_mode = resolve_training_cache(self._cache, date)
         needs_full = full and cached_mode is False and bool(extract_trains(cached))
-        if cached is not None and not force_refresh and not needs_full:
+        if self._is_valid_training_response(cached) and not force_refresh and not needs_full:
             return cached
         generation = self._cache_generation()
         now = monotonic()
@@ -151,7 +162,7 @@ class DataService:
         if cached is not None and previous is not None and now - previous < cooldown:
             return cached
         exact = self._cache.get(cache_key)
-        if exact is not None and not self._is_valid_training_response(exact):
+        if exact is not None and not self._is_valid_training_response(exact) and not extract_trains(exact):
             self._cache.delete(cache_key)
         self._training_attempts[attempt] = now
         try:

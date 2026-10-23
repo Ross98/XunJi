@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app_state import get_jinja_env, get_data_service, get_cache
-from data_service import extract_trains, get_cached_training, resolve_training_cache
+from data_service import DataService, extract_trains, get_cached_training, resolve_training_cache
 from analysis import (
     summarize_training,
     movement_history,
@@ -79,6 +79,8 @@ def _should_skip_training_backfill(cache, training_date: str, now: datetime) -> 
     """Keep populated caches; recheck only recent empty entries after their TTL."""
     cached, mode = resolve_training_cache(cache, training_date)
     if cached is None:
+        return False
+    if not DataService._is_valid_training_response(cached):
         return False
     if extract_trains(cached):
         return mode is True
