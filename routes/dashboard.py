@@ -11,6 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse
 from app_state import get_cache, get_jinja_env, get_data_service
 from data_service import (
+    get_cached_body,
     DataFreshnessService,
     DataService,
     get_cached_training,
@@ -136,7 +137,7 @@ async def _get_body_records(
     end: str,
     background_tasks: BackgroundTasks | None = None,
 ) -> list[dict]:
-    cached = cache.get(cache_key)
+    cached = get_cached_body(cache, cache_key)
     if DataService.body_history_complete(cached):
         if background_tasks is not None and _body_cache_needs_refresh(cache, cache_key):
             background_tasks.add_task(_refresh_body_cache, ds, start, end)

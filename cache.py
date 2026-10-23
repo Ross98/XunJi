@@ -38,17 +38,28 @@ class Cache:
             conn.close()
 
     def get(self, key: str) -> Optional[dict]:
+        return self.get_with_mtime(key)[0]
+
+    def get_with_mtime(self, key: str) -> tuple[Optional[dict], Optional[str]]:
+        """Read payload and version from the same SQLite row."""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT data FROM cache WHERE key = ?", (key,)
+                "SELECT data, mtime FROM cache WHERE key = ?", (key,)
             ).fetchone()
             if row is None:
-                return None
+                return None, None
             try:
                 data = json.loads(row["data"])
             except (ValueError, RecursionError):
-                return None
-            return data if isinstance(data, dict) else None
+                return None, row["mtime"]
+            return (data if isinstance(data, dict) else None), row["mtime"]
+
+    def mtimes_by_prefix(self, prefix: str) -> dict[str, str]:
+        """List versions without loading potentially large cached payloads."""
+        with self._conn() as conn:
+            return dict(conn.execute(
+                "SELECT key, mtime FROM cache WHERE substr(key, 1, ?) = ?", (len(prefix), prefix)
+            ).fetchall())
 
     def set(self, key: str, data: dict):
         with self._conn() as conn:

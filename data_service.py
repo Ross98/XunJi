@@ -112,6 +112,89 @@ def get_cached_training(cache, day: str, full: bool = False) -> Optional[dict]:
     return resolve_training_cache(cache, day)[0]
 
 
+def _cache_version(value):
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc)
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+@dataclass(frozen=True)
+class _BodyScope:
+    start: str
+    end: str
+    types: Optional[frozenset[str]]
+    limit: int
+
+    @classmethod
+    def from_key(cls, key):
+        try:
+            prefix, types, start, end, limit = key.split(":")
+            start = date.min.isoformat() if start == "None" else start
+            limit = int(limit)
+            if (prefix != "body" or limit <= 0 or start > end
+                    or date.fromisoformat(start).isoformat() != start
+                    or date.fromisoformat(end).isoformat() != end or not types):
+                return None
+            return cls(start, end, None if types == "all" else frozenset(types.split(",")), limit)
+        except (TypeError, ValueError):
+            return None
+
+    def includes(self, row):
+        return (self.start <= row["datestr"] <= self.end
+                and (self.types is None or row["type"] in self.types))
+
+    def overlaps(self, other):
+        return (self.start <= other.end and other.start <= self.end
+                and (self.types is None or other.types is None or bool(self.types & other.types)))
+
+
+def get_cached_body(cache, key: str) -> Optional[dict]:
+    """Reconcile newer complete overlapping queries in a read-only display view."""
+    read = getattr(cache, "get_with_mtime", None)
+    versions = getattr(cache, "mtimes_by_prefix", None)
+    if not callable(read) or not callable(versions):
+        return cache.get(key)
+    generation = cache.get_generation()
+    cached, saved_at = read(key)
+    return _reconcile_body_cache(cache, key, cached, saved_at, generation)
+
+
+def _reconcile_body_cache(cache, key, cached, saved_at, generation):
+    read = getattr(cache, "get_with_mtime", None)
+    versions = getattr(cache, "mtimes_by_prefix", None)
+    if not callable(read) or not callable(versions):
+        return cached
+    scope = _BodyScope.from_key(key)
+    version = _cache_version(saved_at)
+    if scope is None or version is None or not DataService.body_history_complete(cached, scope.limit):
+        return cached
+    overlays = []
+    for candidate, timestamp in versions("body:").items():
+        newer = _cache_version(timestamp)
+        other = _BodyScope.from_key(candidate)
+        if newer is None or newer <= version or other is None or not scope.overlaps(other):
+            continue
+        snapshot, timestamp = read(candidate)
+        newer = _cache_version(timestamp)
+        if (newer is not None and newer > version
+                and DataService.body_history_complete(snapshot, other.limit)):
+            overlays.append((newer, candidate, other, snapshot))
+    if cache.get_generation() != generation:
+        return None
+    if not overlays:
+        return cached
+    records = [dict(row) for row in extract_body_records(cached) if scope.includes(row)]
+    for _, _, other, snapshot in sorted(overlays, key=lambda item: item[:2]):
+        records = [row for row in records if not other.includes(row)]
+        records.extend(dict(row) for row in extract_body_records(snapshot)
+                       if scope.includes(row) and other.includes(row))
+    # Derived upstream fields (latest/by_type) belong to the original query.
+    # Return one canonical record list; never persist a composed snapshot as fresh.
+    return {"records": records, "_history_complete": True}
+
+
 class DataService:
     def __init__(self, cache: Cache, api_client: XunjiAPIClient):
         self._cache = cache
@@ -224,37 +307,29 @@ class DataService:
         requested_types = set(types) if types else None
         candidates = []
         for key in keys("body:"):
-            try:
-                _, type_str, lower, upper, page_size = key.split(":")
-                page_size = int(page_size)
-                if page_size <= 0 or date.fromisoformat(upper).isoformat() != upper:
-                    continue
-                if lower != "None":
-                    if date.fromisoformat(lower).isoformat() != lower or lower > upper:
-                        continue
-                    if start is None or lower > start:
-                        continue
-                if start is not None and upper < start:
-                    continue
-            except (TypeError, ValueError):
+            scope = _BodyScope.from_key(key)
+            lower = start or date.min.isoformat()
+            if scope is None or scope.start > lower or scope.end < lower:
                 continue
-            if type_str != "all" and (requested_types is None or not requested_types.issubset(type_str.split(","))):
+            if scope.types is not None and (requested_types is None or not requested_types.issubset(scope.types)):
                 continue
-            snapshot = self._cache.get(key)
-            if not self.body_history_complete(snapshot, page_size):
+            read = getattr(self._cache, "get_with_mtime", None)
+            if callable(read):
+                snapshot, saved_at = read(key)
+            else:
+                snapshot = self._cache.get(key)
+                get_mtime = getattr(self._cache, "get_mtime", None)
+                saved_at = get_mtime(key) if callable(get_mtime) else None
+            if not self.body_history_complete(snapshot, scope.limit):
                 continue
-            get_mtime = getattr(self._cache, "get_mtime", None)
-            saved_at = get_mtime(key) if callable(get_mtime) else None
-            try:
-                version = datetime.fromisoformat(saved_at.replace("Z", "+00:00"))
-                if version.tzinfo is None:
-                    version = version.replace(tzinfo=timezone.utc)
-            except (AttributeError, TypeError, ValueError):
-                version = datetime.min.replace(tzinfo=timezone.utc)
-            candidates.append((version, upper, saved_at, snapshot))
+            version = _cache_version(saved_at) or datetime.min.replace(tzinfo=timezone.utc)
+            candidates.append((version, scope.end, saved_at, snapshot, key))
         if not candidates or self._cache_generation() != generation:
             return None
-        _, upper, saved_at, snapshot = max(candidates, key=lambda candidate: candidate[:2])
+        _, upper, saved_at, snapshot, key = max(candidates, key=lambda candidate: candidate[:2])
+        snapshot = _reconcile_body_cache(self._cache, key, snapshot, saved_at, generation)
+        if snapshot is None or self._cache_generation() != generation:
+            return None
         records = [dict(row) for row in extract_body_records(snapshot)
                    if (start is None or row["datestr"] >= start) and row["datestr"] <= min(end, upper)
                    and (requested_types is None or row["type"] in requested_types)]
@@ -318,7 +393,7 @@ class DataService:
             raise ValueError("Body page limit must be a positive integer")
         type_str = ",".join(types) if types else "all"
         cache_key = f"body:{type_str}:{start_date}:{end_date}:{limit}"
-        cached = self._cache.get(cache_key)
+        cached = get_cached_body(self._cache, cache_key)
         complete_cache = self.body_history_complete(cached, limit)
         if complete_cache and not force_refresh:
             return cached
@@ -354,7 +429,7 @@ class DataService:
             data = await self._fetch_body_history(start_date, end_date, types, limit)
         except Exception:
             if complete_cache:
-                return cached
+                return get_cached_body(self._cache, cache_key) or cached
             fallback = self._body_snapshot_fallback(start_date, end_date, types, generation)
             if fallback is not None:
                 return fallback
@@ -363,7 +438,7 @@ class DataService:
             self._save_read_result(cache_key, data, generation)
             return data
         if complete_cache:
-            return cached
+            return get_cached_body(self._cache, cache_key) or cached
         fallback = self._body_snapshot_fallback(start_date, end_date, types, generation)
         return fallback if fallback is not None else data
 

@@ -77,3 +77,29 @@ def test_empty_prefix_matches_all_keys(tmp_cache):
     assert set(tmp_cache.keys_by_prefix('')) == {'a', 'b'}
     tmp_cache.delete_prefix('')
     assert tmp_cache.keys_by_prefix('') == []
+
+
+def test_versioned_read_pairs_payload_and_timestamp(tmp_cache, monkeypatch):
+    tmp_cache.set('body:test', {'records': []})
+    timestamp = tmp_cache.get_mtime('body:test')
+
+    def separate_read_forbidden(key):
+        raise AssertionError('Version must come from the same SELECT as the payload')
+
+    monkeypatch.setattr(tmp_cache, 'get_mtime', separate_read_forbidden)
+    assert tmp_cache.get_with_mtime('body:test') == ({'records': []}, timestamp)
+    assert tmp_cache.get_with_mtime('missing') == (None, None)
+
+
+def test_prefix_metadata_does_not_decode_corrupt_payloads(tmp_cache):
+    with tmp_cache._conn() as conn:
+        conn.executemany('INSERT INTO cache VALUES (?,?,?)', [
+            ('body:one', '{bad', '2026-10-22T00:00:00+00:00'),
+            ('body:two', '[]', '2026-10-23T00:00:00+00:00'),
+            ('Body:three', '{}', '2026-10-23T00:00:00+00:00'),
+        ])
+    assert tmp_cache.mtimes_by_prefix('body:') == {
+        'body:one': '2026-10-22T00:00:00+00:00',
+        'body:two': '2026-10-23T00:00:00+00:00',
+    }
+    assert tmp_cache.get_with_mtime('body:one') == (None, '2026-10-22T00:00:00+00:00')
