@@ -309,6 +309,12 @@ def _ingest(conn, r, counts):
     counts["new_samples"] += 1
 
 
+def _file_signature(info):
+    """Cloud replacement can retain both content size and modification time."""
+    return (f"v2:{info.st_dev}:{info.st_ino}:{info.st_size}:"
+            f"{info.st_mtime_ns}:{info.st_ctime_ns}")
+
+
 def sync(folder=None, cache=None, cancel_event=None):
     """Atomically ingest each complete batch; failed files remain retryable."""
     folder = Path(folder) if folder is not None else source_folder()
@@ -343,7 +349,7 @@ def sync(folder=None, cache=None, cancel_event=None):
             try:
                 before = path.stat()
                 _check_cancelled(cancel_event)
-                signature = f"{before.st_size}:{before.st_mtime_ns}"
+                signature = _file_signature(before)
                 with ah._conn() as conn:
                     old = conn.execute("SELECT signature FROM hozz_files WHERE path=?", (str(path),)).fetchone()
                     if old and old[0] == signature:
@@ -351,15 +357,20 @@ def sync(folder=None, cache=None, cancel_event=None):
                     # Complete lossless batches end with a newline. Incomplete downloads retry.
                     _check_cancelled(cancel_event)
                     with path.open("r", encoding="utf-8") as stream:
+                        if _file_signature(os.fstat(stream.fileno())) != signature:
+                            raise ValueError("Batch changed before opening; retry later")
                         for line in stream:
                             _check_cancelled(cancel_event)
                             if not line.endswith("\n"):
                                 raise ValueError("Incomplete NDJSON batch")
                             if line.strip():
                                 _ingest(conn, json.loads(line), counts)
+                        _check_cancelled(cancel_event)
+                        if _file_signature(os.fstat(stream.fileno())) != signature:
+                            raise ValueError("Batch changed during import; retry later")
                     _check_cancelled(cancel_event)
                     after = path.stat()
-                    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                    if _file_signature(after) != signature:
                         raise ValueError("Batch changed during import; retry later")
                     _check_cancelled(cancel_event)
                     conn.execute("INSERT OR REPLACE INTO hozz_files VALUES (?,?,?)",
