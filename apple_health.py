@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, date, timezone
 from pathlib import Path
 from typing import Optional
+from health_values import health_interval
 
 
 logger = logging.getLogger(__name__)
@@ -213,17 +214,18 @@ def import_all(
     return total
 
 
-def _optional_finite_number(raw):
+def _optional_finite_number(raw, *, nonnegative=False):
     if not raw:
         return None
     value = float(raw)
-    if not math.isfinite(value):
-        raise ValueError("Non-finite Apple Health value")
+    if not math.isfinite(value) or (nonnegative and value < 0):
+        raise ValueError("Invalid Apple Health numeric value")
     return value
 
 
 def _parse_record(elem):
     try:
+        health_interval(elem.get("startDate"), elem.get("endDate"))
         val = elem.get("value")
         return {
             "type": elem.get("type", ""),
@@ -241,15 +243,16 @@ def _parse_workout(elem):
     dist_raw = elem.get("totalDistance")
     cal_raw = elem.get("totalEnergyBurned")
     try:
+        health_interval(elem.get("startDate"), elem.get("endDate"))
         return {
             "workout_activity_type": elem.get("workoutActivityType", ""),
             "start_date": elem.get("startDate", ""),
             "end_date": elem.get("endDate", ""),
-            "duration": _optional_finite_number(elem.get("duration")),
+            "duration": _optional_finite_number(elem.get("duration"), nonnegative=True),
             "duration_unit": elem.get("durationUnit", ""),
-            "total_distance": _optional_finite_number(dist_raw),
+            "total_distance": _optional_finite_number(dist_raw, nonnegative=True),
             "total_distance_unit": elem.get("totalDistanceUnit", ""),
-            "total_energy_burned": _optional_finite_number(cal_raw),
+            "total_energy_burned": _optional_finite_number(cal_raw, nonnegative=True),
             "total_energy_burned_unit": elem.get("totalEnergyBurnedUnit", ""),
             "source_name": elem.get("sourceName", ""),
         }
@@ -259,6 +262,10 @@ def _parse_workout(elem):
 
 def _parse_sleep(elem):
     """解析睡眠 CategoryRecord。value 是 HKCategoryValueSleepAnalysis* 枚举。"""
+    try:
+        health_interval(elem.get("startDate"), elem.get("endDate"))
+    except (ValueError, TypeError):
+        return None
     return {
         "type": elem.get("value", ""),
         "start_date": elem.get("startDate", ""),

@@ -15,7 +15,7 @@ from data_service import DataFreshnessService
 from sleep_stats import confirmed_sleep_minutes
 import apple_health as ah
 import hozz_sync as hs
-from health_values import health_number as _health_number, metric_records_view
+from health_values import health_number as _health_number, metric_records_view, health_interval
 
 router = APIRouter(tags=["health"])
 logger = logging.getLogger(__name__)
@@ -209,6 +209,22 @@ def _health_numeric_rows(records, fields):
             for row in records]
 
 
+def _health_workout_rows(records):
+    fields = ("duration", "total_distance", "total_energy_burned")
+    result = _health_numeric_rows(records, fields)
+    for row in result:
+        try:
+            # Legacy XML rows may use local-clock timestamps without an offset.
+            health_interval(row.get("start_date"), row.get("end_date"), require_timezone=False)
+            valid_interval = True
+        except (ValueError, TypeError):
+            valid_interval = False
+        for field in fields:
+            if field in row and (not valid_interval or (row[field] is not None and row[field] < 0)):
+                row[field] = None
+    return result
+
+
 def _format_health_value(records, precision=0, scale=1):
     value = _health_number(records[0].get("value"), scale) if records else None
     return f"{value:.{precision}f}" if value is not None else "--"
@@ -266,7 +282,7 @@ def _render_health_page(request: Request):
     walking_steadiness = _health_metric_records("HKQuantityTypeIdentifierAppleWalkingSteadiness", start, end)
     body_mass = _health_metric_records("HKQuantityTypeIdentifierBodyMass", start, end)
     body_fat = _health_metric_records("HKQuantityTypeIdentifierBodyFatPercentage", start, end)
-    workouts = ah.query_workouts(start=start, end=end, limit=5)
+    workouts = _health_workout_rows(ah.query_workouts(start=start, end=end, limit=5))
 
     body_rows = _build_body_table(body_mass, body_fat, max_rows=5)
     total_body_dates = len(set(r["start_date"][:10] for r in body_mass) | set(r["start_date"][:10] for r in body_fat))
@@ -468,4 +484,4 @@ async def health_workouts(
     limit: int = Query(50, ge=1, le=1000),
 ):
     recs = await run_in_threadpool(ah.query_workouts, activity, start, end, limit)
-    return {"data": _health_numeric_rows(recs, ("duration", "total_distance", "total_energy_burned"))}
+    return {"data": _health_workout_rows(recs)}

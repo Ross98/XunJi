@@ -327,11 +327,13 @@ def test_import_all_stops_cooperatively_and_flushes_current_batch(
 ):
     ah = isolated_health_db
     export_xml = tmp_path / "导出.xml"
+    from datetime import datetime, timedelta
+    instants = [(datetime(2026, 8, 9) + timedelta(seconds=index)).strftime('%Y-%m-%d %H:%M:%S +0800')
+                for index in range(1100)]
     records = "".join(
         f'<Record type="HKQuantityTypeIdentifierStepCount" '
-        f'startDate="2026-08-09 {index:04d}" endDate="2026-08-09 {index:04d}" '
-        f'value="1" unit="count" />'
-        for index in range(1100)
+        f'startDate="{instant}" endDate="{instant}" value="1" unit="count" />'
+        for instant in instants
     )
     export_xml.write_text(f"<HealthData>{records}</HealthData>", encoding="utf-8")
     monkeypatch.setattr(ah, "EXPORT_XML", export_xml)

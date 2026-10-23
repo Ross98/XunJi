@@ -14,6 +14,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import apple_health as ah
+from health_values import health_interval, health_timestamp
 
 SYNC_LOCK = threading.Lock()
 CHECK_STALE_SECONDS = 180
@@ -65,9 +66,7 @@ def _initialize():
 def _date(value):
     if not isinstance(value, str):
         raise ValueError("Health timestamp must be a string")
-    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if dt.tzinfo is None:
-        raise ValueError("Health timestamp requires a timezone")
+    dt = health_timestamp(value)
     return dt.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S %z")
 
 
@@ -120,6 +119,7 @@ def _projection(r):
     source = r.get("source", {})
     if not isinstance(source, dict):
         raise ValueError("Health source must be an object")
+    health_interval(r["startDate"], r["endDate"])
     row = dict(start_date=_date(r["startDate"]), end_date=_date(r["endDate"]),
                source_name=source.get("name", ""))
     if kind == "quantity":
@@ -147,7 +147,10 @@ def _projection(r):
     activity = r["activityType"]
     activity = ("HKWorkoutActivityType" + WORKOUT_TYPES.get(activity, str(activity))
                 if isinstance(activity, int) else activity)
-    row.update(workout_activity_type=activity, duration=_number(r["duration"]) / 60,
+    duration = _number(r["duration"])
+    if duration < 0:
+        raise ValueError("Workout duration must not be negative")
+    row.update(workout_activity_type=activity, duration=duration / 60,
                duration_unit="min", total_distance=None, total_distance_unit=None,
                total_energy_burned=None, total_energy_burned_unit=None)
     # Preserve any remaining workout metadata in raw; optional summaries are not invented.
@@ -175,13 +178,18 @@ def _restore_surviving_projection(conn, table, projected_type, start, counts):
         AND (owns_projection!=0 OR projection_state!='collision')""", (table, projected_type, start))
 
     def candidate_row(candidate):
-        projection = _projection(json.loads(candidate['raw']))
+        try:
+            projection = _projection(json.loads(candidate['raw']))
+        except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
+            return None  # Legacy invalid samples remain unresolved, never block a deletion.
         if (not projection or projection[0] != table or projection[1] != key
                 or projection[2][key] != projected_type or projection[2]['start_date'] != start):
             raise ValueError('Stored Hozz projection identity changed')
         return projection[2]
 
     row = candidate_row(first)
+    if row is None:
+        return
     for candidate in candidates:
         if candidate_row(candidate) != row:
             return  # Conflicting survivors have no defensible priority.

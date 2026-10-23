@@ -123,7 +123,7 @@ def test_changed_file_reprocessed_and_missing_folder_explicit(isolated_health_db
     folder = tmp_path / "batches"
     batch(folder, "a.ndjson", [sample()])
     hs.sync(folder)
-    batch(folder, "a.ndjson", [sample(), sample("two", startDate="2026-09-30T02:00:00Z")])
+    batch(folder, "a.ndjson", [sample(), sample("two", startDate="2026-09-30T02:00:00Z", endDate="2026-09-30T02:01:00Z")])
     assert hs.sync(folder)["new_samples"] == 1
 
 
@@ -324,7 +324,7 @@ def test_overflowing_or_deep_batch_rolls_back_and_does_not_starve_later_files(
     assert tmp_cache.get('_health_import_time') == marker
 
     # A repaired batch remains retryable; its prior partial writes never escaped.
-    batch(folder, 'a.ndjson', [first, sample('repaired', startDate='2026-09-30T02:00:00Z')])
+    batch(folder, 'a.ndjson', [first, sample('repaired', startDate='2026-09-30T02:00:00Z', endDate='2026-09-30T02:01:00Z')])
     repaired = hs.sync(folder, cache=tmp_cache)
     assert repaired['status'] == 'ok'
     assert repaired['new_samples'] == 2
