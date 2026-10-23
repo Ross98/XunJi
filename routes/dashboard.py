@@ -21,6 +21,7 @@ from analysis import summarize_training, summarize_body, body_latest, training_t
 from routes.training import _merge_overlapping_trains
 from sleep_stats import confirmed_sleep_minutes
 from activity_stats import daily_activity_totals, confirmed_activity_average
+from health_values import health_number, health_mean, metric_records_view
 
 router = APIRouter(tags=["dashboard"])
 logger = logging.getLogger(__name__)
@@ -53,15 +54,15 @@ def _get_ah():
 def _build_trend(records: list[dict]) -> list[dict]:
     """Aggregate Apple Health records by date (avg per day)."""
     by_date = defaultdict(list)
-    for r in records:
-        d = r.get("start_date", "")[:10]
-        v = r.get("value")
-        if d and v is not None:
-            by_date[d].append(float(v))
+    for row in metric_records_view(records):
+        values = by_date[row["start_date"][:10]]
+        if row["value"] is not None:
+            values.append(row["value"])
     result = []
-    for d in sorted(by_date.keys()):
-        vals = by_date[d]
-        result.append({"date": d[5:], "iso_date": d, "value": round(sum(vals) / len(vals), 1)})
+    for day, values in sorted(by_date.items()):
+        mean = health_mean(values)
+        result.append({"date": day[5:], "iso_date": day,
+                       "value": round(mean, 1) if mean is not None else None})
     return result
 
 
@@ -74,7 +75,8 @@ def _ma7(trend: list[dict]) -> list:
     for point in trend:
         end = date.fromisoformat(point["iso_date"])
         values = [by_date.get(end - timedelta(days=offset)) for offset in range(7)]
-        out.append(round(sum(values) / 7, 1) if all(v is not None for v in values) else None)
+        mean = health_mean(values) if all(v is not None for v in values) else None
+        out.append(round(mean, 1) if mean is not None else None)
     return out
 
 
@@ -85,7 +87,10 @@ def _chg7(trend: list[dict]) -> Optional[float]:
     last = trend[-1]
     previous_day = (date.fromisoformat(last["iso_date"]) - timedelta(days=7)).isoformat()
     previous = next((point for point in trend if point["iso_date"] == previous_day), None)
-    return round(last["value"] - previous["value"], 1) if previous else None
+    if previous is None or last["value"] is None or previous["value"] is None:
+        return None
+    change = health_number(last["value"] - previous["value"])
+    return round(change, 1) if change is not None else None
 
 
 async def _get_training_or_empty(ds, training_date: str) -> dict:
@@ -251,9 +256,9 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
         end = today + ' 23:59:59'
         start = (date.today() - timedelta(days=90)).isoformat() + ' 00:00:00'
 
-        hrv_raw = ah.query_records("HKQuantityTypeIdentifierHeartRateVariabilitySDNN", start, end)
-        rhr_raw = ah.query_records("HKQuantityTypeIdentifierRestingHeartRate", start, end)
-        vo2_raw = ah.query_records("HKQuantityTypeIdentifierVO2Max", start, end)
+        hrv_raw = metric_records_view(ah.query_records("HKQuantityTypeIdentifierHeartRateVariabilitySDNN", start, end))
+        rhr_raw = metric_records_view(ah.query_records("HKQuantityTypeIdentifierRestingHeartRate", start, end))
+        vo2_raw = metric_records_view(ah.query_records("HKQuantityTypeIdentifierVO2Max", start, end))
 
         hrv_trend = _build_trend(hrv_raw)
         rhr_trend = _build_trend(rhr_raw)
@@ -333,13 +338,13 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
         # ── 恢复分析 (训练日 vs 休息日) ──
         try:
             # 恢复分析只读缓存，避免冷启动时并发请求 Open API。
-            training_dates = _get_cached_training_dates(cache, today, days=14)
+            training_dates = _get_cached_training_dates(cache, today, days=30)
 
             if training_dates and hrv_raw:
                 # Normalize training dates to MM-DD
                 train_mmdd = {d[5:] for d in training_dates}
 
-                da_30 = (date.today() - timedelta(days=30)).isoformat()
+                da_30 = (date.today() - timedelta(days=29)).isoformat()
                 hrv_30 = [r for r in hrv_raw if r["start_date"][:10] >= da_30[:10]]
                 hrv_chart = _build_trend(hrv_30)
 
@@ -350,15 +355,19 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
                 train_vals, rest_vals = [], []
                 for d in hrv_chart:
                     val = d["value"]
-                    if d["train_day"] and val:
+                    if d["train_day"] and val is not None:
                         train_vals.append(val)
-                    elif not d["train_day"] and val:
+                    elif not d["train_day"] and val is not None:
                         rest_vals.append(val)
 
-                train_avg = round(sum(train_vals) / len(train_vals), 1) if train_vals else None
-                rest_avg = round(sum(rest_vals) / len(rest_vals), 1) if rest_vals else None
-                today_val = hrv_chart[-1]["value"] if hrv_chart else None
-                vs_train = round(today_val / train_avg * 100 - 100, 1) if today_val and train_avg else None
+                train_mean = health_mean(train_vals)
+                train_avg = round(train_mean, 1) if train_mean is not None else None
+                rest_mean = health_mean(rest_vals)
+                rest_avg = round(rest_mean, 1) if rest_mean is not None else None
+                today_val = latest_hrv
+                ratio = health_number(today_val / train_avg * 100 - 100) if today_val is not None and train_avg else None
+                vs_train = round(ratio, 1) if ratio is not None else None
+                rest_ratio = health_number(rest_avg / train_avg * 100 - 100) if rest_avg is not None and train_avg else None
 
                 recovery = {
                     "chart_data": hrv_chart,
@@ -366,6 +375,7 @@ async def dashboard_content(request: Request, background_tasks: BackgroundTasks)
                     "rest_avg": rest_avg,
                     "today_hrv": today_val,
                     "vs_train_pct": vs_train,
+                    "rest_vs_train_pct": round(rest_ratio, 1) if rest_ratio is not None else None,
                     "train_days": len(training_dates),
                     "train_samples": len(train_vals),
                     "rest_samples": len(rest_vals),

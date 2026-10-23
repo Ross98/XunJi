@@ -5,7 +5,6 @@ from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 import threading
 import logging
-import math
 
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
@@ -15,6 +14,7 @@ from data_service import DataFreshnessService
 from sleep_stats import confirmed_sleep_minutes
 import apple_health as ah
 import hozz_sync as hs
+from health_values import health_number as _health_number, metric_records_view
 
 router = APIRouter(tags=["health"])
 logger = logging.getLogger(__name__)
@@ -185,19 +185,9 @@ async def _run_import_job():
         )
 
 
-def _health_number(value, scale=1):
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        scaled = value * scale
-        return scaled if math.isfinite(scaled) else None
-    except OverflowError:
-        return None
-
-
 def _health_metric_records(metric, start, end):
     # Keep missing sample positions and dates; only sanitize the display copy.
-    return _health_numeric_rows(ah.query_records_desc(metric, start, end, limit=30), ("value",))
+    return metric_records_view(ah.query_records_desc(metric, start, end, limit=30))
 
 
 def _health_numeric_rows(records, fields):

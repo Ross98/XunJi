@@ -151,26 +151,27 @@ else initHealthCharts();
 {% endif %}
 
 {% if recovery and recovery.chart_data %}
+{% set rest_pct = recovery.get('rest_vs_train_pct') %}
 <div class="sortable-card" data-section="recovery">
 <div class="grid-3">
     <div class="card"><div class="stat">
-        <div class="stat-value" style="color:#5a6a7a;">{{ "%.0f"|format(recovery.train_avg) if recovery.train_avg else '--' }}</div>
+        <div class="stat-value" style="color:var(--text-muted);">{{ "%.0f"|format(recovery.train_avg) if recovery.train_avg is not none else '--' }}</div>
         <div class="stat-label">训练日 HRV (30d)</div>
         <div class="stat-caption">{{ recovery.train_samples }}个日样本 · 仅表示同期差异</div>
     </div></div>
     <div class="card"><div class="stat">
-        <div class="stat-value">{{ "%.0f"|format(recovery.rest_avg) if recovery.rest_avg else '--' }} {% if recovery.rest_avg and recovery.train_avg %}<span style="font-size:13px;font-weight:400;color:#388e3c;">↑{{ ((recovery.rest_avg / recovery.train_avg - 1) * 100)|round|int }}%</span>{% endif %}</div>
+        <div class="stat-value">{{ "%.0f"|format(recovery.rest_avg) if recovery.rest_avg is not none else '--' }}</div>
         <div class="stat-label">休息日 HRV (30d)</div>
-        <div class="stat-caption">{{ recovery.rest_samples }}个日样本 · 高于训练日 {{ ((recovery.rest_avg / recovery.train_avg - 1) * 100)|round|int if recovery.rest_avg and recovery.train_avg else 0 }}%</div>
+        <div class="stat-caption">{{ recovery.rest_samples }}个日样本 · {% if rest_pct is not none %}较训练日 {{ "%+.0f"|format(rest_pct) }}%{% else %}与训练日对比未确认{% endif %}</div>
     </div></div>
     <div class="card"><div class="stat">
-        <div class="stat-value">{{ "%.0f"|format(recovery.today_hrv) if recovery.today_hrv else '--' }}</div>
+        <div class="stat-value">{{ "%.0f"|format(recovery.today_hrv) if recovery.today_hrv is not none else '--' }}</div>
         <div class="stat-label">最近一次 HRV</div>
         {% if recovery.vs_train_pct is not none %}
         <div style="font-size:13px;margin-top:2px;">
-            <span style="{% if recovery.today_hrv and recovery.rest_avg and recovery.today_hrv >= recovery.rest_avg %}color:#388e3c{% else %}color:#e53935{% endif %}">
-                {% if recovery.today_hrv and recovery.rest_avg and recovery.today_hrv >= recovery.rest_avg %}🟢{% else %}🔴{% endif %}
-                {{ "+" if recovery.vs_train_pct|abs > 0.1 else "" }}{{ "%.0f"|format(recovery.vs_train_pct) }}%
+            <span style="{% if recovery.today_hrv is not none and recovery.rest_avg is not none and recovery.today_hrv >= recovery.rest_avg %}color:#388e3c{% else %}color:#e53935{% endif %}">
+                {% if recovery.today_hrv is not none and recovery.rest_avg is not none and recovery.today_hrv >= recovery.rest_avg %}🟢{% else %}🔴{% endif %}
+                {{ "%+.0f"|format(recovery.vs_train_pct) }}%
             </span>
             <span style="color:#999;">vs 训练日</span>
         </div>
@@ -191,8 +192,9 @@ if (recData && recData.length > 0) {
     const restRef = {{ recovery.rest_avg | tojson }};
     const ptColors = recData.map(p => {
         const v = p.value;
-        if (restRef && v >= restRef) return '#388e3c';
-        if (trainRef && v >= trainRef) return '#9e9e9e';
+        if (v === null) return '#9e9e9e';
+        if (restRef !== null && v >= restRef) return '#388e3c';
+        if (trainRef !== null && v >= trainRef) return '#9e9e9e';
         return '#e53935';
     });
     new Chart(document.getElementById('recoveryChart'), {
