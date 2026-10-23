@@ -1,6 +1,7 @@
 """Calendar-based chart windows, independent of browser timezone and sample count."""
 from collections import defaultdict
 from datetime import date, timedelta
+from health_values import finite_sum
 
 from analysis import (
     calories_trend, heart_rate_trend, training_duration_trend,
@@ -28,12 +29,12 @@ def build_chart_ranges(merged_trains, raw_trains, reference: date):
         raw = select_training_window(raw_trains, reference, days)
         daily = training_volume_by_date(selected)
         if days == 90:
-            weekly = defaultdict(float)
+            weekly = defaultdict(list)
             for day, value in daily.items():
                 parsed = date.fromisoformat(day)
                 monday = parsed - timedelta(days=parsed.weekday())
-                weekly[monday.isoformat()] += value
-            points = weekly
+                weekly[monday.isoformat()].append(value)
+            points = {day: finite_sum(values) for day, values in weekly.items()}
         else:
             points = daily
         volumes[str(days)] = [{"date": day, "value": points[day]} for day in sorted(points)]

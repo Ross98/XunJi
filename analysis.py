@@ -1,6 +1,6 @@
 from typing import Any, Optional, Union
 import math
-from health_values import health_weighted_mean
+from health_values import health_weighted_mean, health_number, finite_sum, finite_product_sum
 
 def _safe_float(v: Any) -> float:
     if isinstance(v, bool):
@@ -47,26 +47,24 @@ def training_is_unfinished(train: dict) -> bool:
     return bool(movements) and all(movement_is_unfinished(movement) for movement in movements)
 
 
-def _total_volume_for_movement(movement: dict) -> float:
-    return sum(
-        _safe_float(s.get("weight", s.get("weight_kg", 0))) * _safe_float(s.get("reps", 0))
+def _total_volume_for_movement(movement: dict) -> Optional[float]:
+    return finite_product_sum(
+        (_safe_float(s.get("weight", s.get("weight_kg", 0))), _safe_float(s.get("reps", 0)))
         for s in iter_movement_sets(movement)
     )
 
 
-def training_volume_by_date(trains: list[dict]) -> dict[str, float]:
+def training_volume_by_date(trains: list[dict]) -> dict[str, Optional[float]]:
     """Calculate total training volume (weight x reps) grouped by date."""
-    volumes: dict[str, float] = {}
+    volumes: dict[str, list[Optional[float]]] = {}
     for train in trains:
         date = train.get("datestr", "")
         if not date:
             continue
-        total = 0.0
-        for mov in train.get("movements", []):
-            total += _total_volume_for_movement(mov)
-        if total > 0:
-            volumes[date] = volumes.get(date, 0) + total
-    return volumes
+        total = finite_sum(_total_volume_for_movement(mov) for mov in train.get("movements", []))
+        if total is None or total > 0:
+            volumes.setdefault(date, []).append(total)
+    return {day: finite_sum(values) for day, values in volumes.items()}
 
 
 def movement_frequency(trains: list[dict]) -> dict[str, int]:
@@ -89,7 +87,7 @@ def movement_frequency(trains: list[dict]) -> dict[str, int]:
 
 def summarize_training(trains: list[dict]) -> dict:
     """Produce a summary dict with total volume, total sets, frequency, etc."""
-    total_volume = 0.0
+    movement_volumes = []
     total_sets = 0
     dates = set()
 
@@ -98,7 +96,7 @@ def summarize_training(trains: list[dict]) -> dict:
         if d and not training_is_unfinished(train):
             dates.add(d)
         for mov in train.get("movements", []):
-            total_volume += _total_volume_for_movement(mov)
+            movement_volumes.append(_total_volume_for_movement(mov))
             total_sets += sum(1 for _ in iter_movement_sets(mov))
 
     vol_by_date = training_volume_by_date(trains)
@@ -106,7 +104,7 @@ def summarize_training(trains: list[dict]) -> dict:
     top = sorted(freq.items(), key=lambda x: -x[1])[:10]
 
     return {
-        "total_volume": total_volume,
+        "total_volume": finite_sum(movement_volumes),
         "total_sets": total_sets,
         "total_days": len(dates),
         "volume_by_date": vol_by_date,
@@ -321,17 +319,23 @@ def movement_history(trains: list[dict], movement_name: str) -> list[dict]:
             row = records.setdefault(day, {
                 "date": day, "max_weight": 0.0, "total_volume": 0.0,
                 "total_sets": 0, "estimated_1rm": 0.0,
+                "_volume_terms": [],
             })
             for s in iter_movement_sets(mov):
                 w = _safe_float(s.get("weight", s.get("weight_kg", 0)))
                 reps = _safe_float(s.get("reps", 0))
                 row["max_weight"] = max(row["max_weight"], w)
-                row["total_volume"] += w * reps
+                row["_volume_terms"].append((w, reps))
                 row["total_sets"] += 1
                 if w > 0 and reps > 0:
-                    row["estimated_1rm"] = max(row["estimated_1rm"], w * (1 + reps / 30))
+                    estimate = health_number(w * (1 + reps / 30))
+                    previous = row["estimated_1rm"]
+                    row["estimated_1rm"] = (max(previous, estimate)
+                                            if previous is not None and estimate is not None else None)
     for row in records.values():
-        row["estimated_1rm"] = round(row["estimated_1rm"], 1)
+        row["total_volume"] = finite_product_sum(row.pop("_volume_terms"))
+        if row["estimated_1rm"] is not None:
+            row["estimated_1rm"] = round(row["estimated_1rm"], 1)
     return sorted(records.values(), key=lambda x: x["date"])
 
 

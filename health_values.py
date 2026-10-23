@@ -102,11 +102,8 @@ def health_weighted_mean(observations):
     if not numbers or any(value is None or weight is None or weight <= 0 for value, weight in numbers):
         return None
     try:
-        products = [value * weight for value, weight in numbers]
-        # Subnormal products can lose significant digits, even without becoming
-        # zero. Keep exact arithmetic for these exceptional inputs as well.
-        if all(math.isfinite(product) and (abs(product) >= float_info.min or value == 0)
-               for (value, _), product in zip(numbers, products)):
+        products = _normal_products(numbers)
+        if products is not None:
             mean = health_number(math.fsum(products) / math.fsum(weight for _, weight in numbers))
             uncertain_zero = mean == 0 and any(value != 0 for value, _ in numbers)
             if (mean is not None and not uncertain_zero
@@ -120,6 +117,57 @@ def health_weighted_mean(observations):
     from fractions import Fraction
     numerator = sum((Fraction(value) * Fraction(weight) for value, weight in numbers), Fraction())
     denominator = sum((Fraction(weight) for _, weight in numbers), Fraction())
-    mean = float(numerator / denominator)
-    # A nonzero result below float range cannot establish an observed zero.
-    return None if mean == 0 and numerator != 0 else health_number(mean)
+    return _fraction_value(numerator / denominator)
+
+
+def _fraction_value(exact):
+    try:
+        value = float(exact)
+    except OverflowError:
+        return None
+    return None if value == 0 and exact != 0 else health_number(value)
+
+
+def _normal_products(numbers):
+    """Subnormal products need exact arithmetic even when they are nonzero."""
+    products = [value * weight for value, weight in numbers]
+    try:
+        if all(math.isfinite(product) and (abs(product) >= float_info.min or value == 0 or weight == 0)
+               for (value, weight), product in zip(numbers, products)):
+            return products
+    except OverflowError:
+        pass
+    return None
+
+
+def finite_sum(values):
+    """Propagate unknown terms; recover representable sums after intermediate overflow."""
+    numbers = [health_number(value) for value in values]
+    if any(value is None for value in numbers):
+        return None
+    try:
+        total = health_number(math.fsum(numbers))
+        if total != 0 or not any(numbers):
+            return total
+    except OverflowError:
+        pass
+    from fractions import Fraction
+    return _fraction_value(sum((Fraction(value) for value in numbers), Fraction()))
+
+
+def finite_product_sum(observations):
+    """Sum finite products without manufacturing zero or infinity on overflow."""
+    numbers = [(health_number(value), health_number(weight)) for value, weight in observations]
+    if any(value is None or weight is None for value, weight in numbers):
+        return None
+    products = _normal_products(numbers)
+    if products is not None:
+        try:
+            total = health_number(math.fsum(products))
+            if total != 0 or not any(products):
+                return total
+        except OverflowError:
+            pass
+    from fractions import Fraction
+    exact = sum((Fraction(value) * Fraction(weight) for value, weight in numbers), Fraction())
+    return _fraction_value(exact)

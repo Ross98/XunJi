@@ -13,9 +13,9 @@
     {% else %}
     <div class="grid-3" style="margin-bottom:12px;">
         <div class="stat"><div class="stat-value">{{ session_count|default(trains|length) }}</div><div class="stat-label">计入统计场次</div></div>
-        {% if summary.total_volume > 0 %}
+        {% if summary.total_volume is none or summary.total_volume > 0 %}
         <div class="stat"><div class="stat-value">{{ summary.total_sets }}</div><div class="stat-label">总组数</div></div>
-        <div class="stat"><div class="stat-value">{{ "%.0f"|format(summary.total_volume) }}</div><div class="stat-label">总容量 (kg)</div></div>
+        <div class="stat"><div class="stat-value">{{ "%.0f"|format(summary.total_volume) if summary.total_volume is not none else '--' }}</div><div class="stat-label">{{ '总容量 (kg)' if summary.total_volume is not none else '总容量未确认' }}</div></div>
         {% else %}
         <div class="stat"><div class="stat-value">{{ cardio_summary.minutes|default('--') }}</div><div class="stat-label">有氧分钟</div></div>
         <div class="stat"><div class="stat-value">{{ cardio_summary.calories|default('--') }}</div><div class="stat-label">活动能量 (kcal)</div></div>

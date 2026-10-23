@@ -56,7 +56,7 @@
         </div>
         <div id="movementShortcuts" class="movement-shortcuts" aria-label="最近和收藏动作"></div>
         <div id="trackSummary" class="inline-kpis"></div>
-        <div id="trackState" class="inline-state" hidden></div>
+        <div id="trackState" class="inline-state" style="font-size:14px;" hidden></div>
         <div class="chart-container"><canvas id="trackChart"></canvas></div>
     </div>
 
@@ -133,13 +133,18 @@ function renderVolume(range) {
     const summary = document.getElementById('volumeSummary');
     if (labels.length === 0) { ctx.hidden = true; summary.innerHTML = '<span>暂无力量训练容量数据</span>'; return; }
     ctx.hidden = false;
-    const avg = values.reduce((a,b)=>a+b,0) / values.length;
-    const best = Math.max(...values);
+    const known = values.filter(Number.isFinite);
+    const unknownCount = values.length - known.length;
+    const avg = known.length ? known.reduce((mean, value, index) => mean + (value - mean) / (index + 1), 0) : null;
+    const best = known.length ? known.reduce((maximum, value) => Math.max(maximum, value), known[0]) : null;
+    const display = value => Number.isFinite(value) ? Math.round(value) : '--';
     const period = range > 30 ? '周' : '日';
-    summary.innerHTML = '<span><b>'+Math.round(avg)+'</b> 有记录'+period+'均值</span><span><b>'+Math.round(best)+'</b> '+period+'峰值</span><span><b>'+points.length+'</b> 个有容量记录'+period+'</span>';
+    const scope = unknownCount ? '可确认记录' : '有记录';
+    summary.innerHTML = '<span><b>'+display(avg)+'</b> '+scope+period+'均值</span><span><b>'+display(best)+'</b> '+(unknownCount ? '可确认' : '')+period+'峰值</span><span><b>'+known.length+'</b> 个'+(unknownCount ? '可确认' : '有')+'容量记录'+period+'</span>';
+    if (unknownCount) summary.innerHTML += '<span>'+unknownCount+' 个'+period+'容量未确认，图表空点不计为零</span>';
     window._volChart = new Chart(ctx, {
         type: 'line',
-        data: { labels, datasets: [{ label: '容量 (kg)', data: values, borderColor: '#1a1a2e', tension: 0.3, fill: false, pointRadius: 3 }] },
+        data: { labels, datasets: [{ label: '容量 (kg)', data: values, spanGaps: false, borderColor: '#1a1a2e', tension: 0.3, fill: false, pointRadius: 3 }] },
         options: { responsive: true, maintainAspectRatio: false, interaction:{mode:'index',intersect:false}, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title:{display:true,text:'容量 (kg)'} }, x:{ticks:{maxTicksLimit:range>30?10:12}} } }
     });
 }
@@ -422,18 +427,25 @@ function renderTrack(data) {
     }
     trackCtx.style.display = '';
     trackState.hidden = true;
-    const latest = data.max_weight[data.max_weight.length - 1] || 0;
-    const best = Math.max(...data.max_weight, 0);
-    const oneRm = Math.max(...(data.estimated_1rm || []), 0);
+    const latestValue = data.max_weight[data.max_weight.length - 1];
+    const latest = Number.isFinite(latestValue) ? latestValue : '--';
+    const confirmedMaximum = values => values.length && values.every(Number.isFinite)
+        ? values.reduce((maximum, value) => Math.max(maximum, value), 0) : null;
+    const best = confirmedMaximum(data.max_weight);
+    const oneRm = confirmedMaximum(data.estimated_1rm || []);
+    if (data.total_volume.some(value => !Number.isFinite(value)) || oneRm === null) {
+        trackState.hidden = false;
+        trackState.textContent = '部分容量或1RM未确认，图表空点不计为零。';
+    }
     const sets = (data.total_sets || []).reduce((a,b)=>a+b,0);
-    trackSummary.innerHTML = '<span><b>'+latest+'</b>kg 最近重量</span><span><b>'+best+'</b>kg 历史最佳</span><span><b>'+oneRm.toFixed(1)+'</b>kg 估算1RM</span><span><b>'+sets+'</b> 总组数</span>';
+    trackSummary.innerHTML = '<span><b>'+latest+'</b>kg 最近重量</span><span><b>'+(best === null ? '--' : best)+'</b>kg 历史最佳</span><span><b>'+(oneRm === null ? '--' : oneRm.toFixed(1))+'</b>kg 估算1RM</span><span><b>'+sets+'</b> 总组数</span>';
     _trackChart = new Chart(trackCtx, {
         type: 'line',
         data: {
             labels: data.dates,
             datasets: [
                 { label: '最大重量 (kg)', data: data.max_weight, borderColor: '#1a1a2e', yAxisID: 'y', tension: 0.3, fill: false, pointRadius: 5 },
-                { label: '总容量 (kg)', data: data.total_volume, borderColor: '#e53935', yAxisID: 'y1', tension: 0.3, fill: false, pointRadius: 3 }
+                { label: '总容量 (kg)', data: data.total_volume, spanGaps: false, borderColor: '#e53935', yAxisID: 'y1', tension: 0.3, fill: false, pointRadius: 3 }
             ]
         },
         options: {
