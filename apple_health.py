@@ -7,6 +7,7 @@ Apple Health 导出数据导入与查询模块。
 
 import sqlite3
 import logging
+import math
 from contextlib import contextmanager
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, date, timezone
@@ -202,6 +203,15 @@ def import_all(
     return total
 
 
+def _optional_finite_number(raw):
+    if not raw:
+        return None
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("Non-finite Apple Health value")
+    return value
+
+
 def _parse_record(elem):
     try:
         val = elem.get("value")
@@ -209,7 +219,7 @@ def _parse_record(elem):
             "type": elem.get("type", ""),
             "start_date": elem.get("startDate", ""),
             "end_date": elem.get("endDate", ""),
-            "value": float(val) if val else None,
+            "value": _optional_finite_number(val),
             "unit": elem.get("unit", ""),
             "source_name": elem.get("sourceName", ""),
         }
@@ -225,11 +235,11 @@ def _parse_workout(elem):
             "workout_activity_type": elem.get("workoutActivityType", ""),
             "start_date": elem.get("startDate", ""),
             "end_date": elem.get("endDate", ""),
-            "duration": float(elem.get("duration", 0)) if elem.get("duration") else None,
+            "duration": _optional_finite_number(elem.get("duration")),
             "duration_unit": elem.get("durationUnit", ""),
-            "total_distance": float(dist_raw) if dist_raw else None,
+            "total_distance": _optional_finite_number(dist_raw),
             "total_distance_unit": elem.get("totalDistanceUnit", ""),
-            "total_energy_burned": float(cal_raw) if cal_raw else None,
+            "total_energy_burned": _optional_finite_number(cal_raw),
             "total_energy_burned_unit": elem.get("totalEnergyBurnedUnit", ""),
             "source_name": elem.get("sourceName", ""),
         }

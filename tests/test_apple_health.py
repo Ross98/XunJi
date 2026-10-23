@@ -357,3 +357,38 @@ def test_coverage_combines_all_tables_and_empty_stores(isolated_health_db):
         conn.execute('INSERT INTO health_sleep (type,start_date,end_date) VALUES (?,?,?)',
                      ('AsleepCore', '2026-10-21 23:00:00 +0800', '2026-10-22 06:00:00 +0800'))
     assert ah.get_data_coverage() == {'start_date': '2026-10-09', 'end_date': '2026-10-21'}
+
+
+@pytest.mark.parametrize("invalid", ["NaN", "Infinity", "-Infinity", "1e9999"])
+@pytest.mark.parametrize("field", ["value", "duration", "totalDistance", "totalEnergyBurned"])
+def test_xml_import_rejects_nonfinite_numbers_without_losing_valid_neighbors(
+    isolated_health_db, tmp_path, monkeypatch, field, invalid
+):
+    import json
+    import xml.etree.ElementTree as ET
+
+    ah = isolated_health_db
+    root = ET.Element("HealthData")
+    for hour, bad in [(8, True), (9, False)]:
+        common = dict(startDate=f"2026-08-09 {hour:02d}:00:00 +0800",
+                      endDate=f"2026-08-09 {hour:02d}:30:00 +0800")
+        if field == "value":
+            ET.SubElement(root, "Record", dict(common,
+                type="HKQuantityTypeIdentifierStepCount", unit="count",
+                value=invalid if bad else "0"))
+        else:
+            attrs = dict(common, workoutActivityType="HKWorkoutActivityTypeWalking",
+                         duration="30", totalDistance="0", totalEnergyBurned="0")
+            if bad:
+                attrs[field] = invalid
+            ET.SubElement(root, "Workout", attrs)
+    xml = tmp_path / "finite-numbers.xml"
+    ET.ElementTree(root).write(xml, encoding="utf-8")
+    monkeypatch.setattr(ah, "EXPORT_XML", xml)
+
+    assert ah.import_all() == 1
+    records = ah.query_records() if field == "value" else ah.query_workouts()
+    assert len(records) == 1
+    assert records[0]["start_date"] == "2026-08-09 09:00:00 +0800"
+    assert records[0]["value" if field == "value" else "total_distance"] == 0
+    json.dumps(records, allow_nan=False)
