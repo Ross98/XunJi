@@ -8,7 +8,8 @@ import math
 import os
 import sqlite3
 import threading
-from contextlib import closing
+import tempfile
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -31,17 +32,53 @@ def source_folder():
         str(Path.home() / "Library/Mobile Documents/com~apple~CloudDocs/Apple Health")))
 
 
-def _initialize():
+def _check_cancelled(cancel_event):
+    if cancel_event is not None and cancel_event.is_set():
+        raise ah.ImportCancelled("Hozz sync cancelled")
+
+
+@contextmanager
+def _sync_guard(cancel_event):
+    acquired = False
+    try:
+        if cancel_event is None:
+            SYNC_LOCK.acquire()
+            acquired = True
+        else:
+            while not cancel_event.is_set():
+                if SYNC_LOCK.acquire(timeout=0.1):
+                    acquired = True
+                    break
+        yield acquired
+    finally:
+        if acquired:
+            SYNC_LOCK.release()
+
+
+def _initialize(cancel_event=None):
+    _check_cancelled(cancel_event)
     # One SQLite backup before adding the importer schema; never recreate caches.
     if ah.HEALTH_DB_PATH.exists():
         with ah._conn() as conn:
             exists = conn.execute("SELECT 1 FROM sqlite_master WHERE name='hozz_samples'").fetchone()
             if not exists:
-                backup = ah.HEALTH_DB_PATH.with_name(
-                    ah.HEALTH_DB_PATH.name + ".pre-hozz-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".bak")
-                with closing(sqlite3.connect(backup)) as target:
-                    conn.backup(target)
+                _check_cancelled(cancel_event)
+                descriptor, filename = tempfile.mkstemp(
+                    prefix=ah.HEALTH_DB_PATH.name + ".pre-hozz-" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-",
+                    suffix=".bak", dir=ah.HEALTH_DB_PATH.parent)
+                os.close(descriptor)
+                backup = Path(filename)
+                try:
+                    with closing(sqlite3.connect(backup)) as target:
+                        conn.backup(target)
+                except BaseException:
+                    backup.unlink(missing_ok=True)  # Only this call's private, incomplete backup.
+                    raise
+    # Finish an already-started backup before honoring cancellation; it must
+    # remain a usable recovery point, not a partial file labelled as a backup.
+    _check_cancelled(cancel_event)
     ah._init_db()
+    _check_cancelled(cancel_event)
     with ah._conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS hozz_samples (
@@ -275,14 +312,26 @@ def _ingest(conn, r, counts):
 def sync(folder=None, cache=None, cancel_event=None):
     """Atomically ingest each complete batch; failed files remain retryable."""
     folder = Path(folder) if folder is not None else source_folder()
-    with SYNC_LOCK:
-        _initialize()
-        result = dict(status="ok", folder=str(folder), files=0, new_samples=0,
-                      inserted=0, deleted=0, errors=[], checked_at=datetime.now(timezone.utc).isoformat())
+    result = dict(status="cancelled", folder=str(folder), files=0, new_samples=0,
+                  inserted=0, deleted=0, errors=[], checked_at=None, last_sync=None)
+    with _sync_guard(cancel_event) as acquired:
+        if not acquired:
+            return result
         try:
-            if not folder.is_dir():
+            _initialize(cancel_event=cancel_event)
+            _check_cancelled(cancel_event)
+        except ah.ImportCancelled:
+            return result
+        result.update(status="ok", checked_at=datetime.now(timezone.utc).isoformat())
+        try:
+            directory_exists = folder.is_dir()
+            _check_cancelled(cancel_event)
+            if not directory_exists:
                 raise FileNotFoundError("同步文件夹不存在或不可读取")
             files = sorted(folder.glob("*.ndjson"))
+        except ah.ImportCancelled:
+            result["status"] = "cancelled"
+            files = []
         except OSError as exc:
             result.update(status="unavailable", errors=[str(exc)])
             files = []
@@ -293,23 +342,26 @@ def sync(folder=None, cache=None, cancel_event=None):
             counts = dict(new_samples=0, inserted=0, deleted=0)
             try:
                 before = path.stat()
+                _check_cancelled(cancel_event)
                 signature = f"{before.st_size}:{before.st_mtime_ns}"
                 with ah._conn() as conn:
                     old = conn.execute("SELECT signature FROM hozz_files WHERE path=?", (str(path),)).fetchone()
                     if old and old[0] == signature:
                         continue
                     # Complete lossless batches end with a newline. Incomplete downloads retry.
+                    _check_cancelled(cancel_event)
                     with path.open("r", encoding="utf-8") as stream:
                         for line in stream:
-                            if cancel_event is not None and cancel_event.is_set():
-                                raise ah.ImportCancelled("Hozz sync cancelled")
+                            _check_cancelled(cancel_event)
                             if not line.endswith("\n"):
                                 raise ValueError("Incomplete NDJSON batch")
                             if line.strip():
                                 _ingest(conn, json.loads(line), counts)
+                    _check_cancelled(cancel_event)
                     after = path.stat()
                     if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
                         raise ValueError("Batch changed during import; retry later")
+                    _check_cancelled(cancel_event)
                     conn.execute("INSERT OR REPLACE INTO hozz_files VALUES (?,?,?)",
                                  (str(path), signature, result["checked_at"]))
                 result["files"] += 1
@@ -321,6 +373,8 @@ def sync(folder=None, cache=None, cancel_event=None):
             except (OSError, ValueError, KeyError, TypeError, OverflowError,
                     RecursionError, sqlite3.Error) as exc:
                 result["errors"].append(f"{path.name}: {exc}")
+        if cancel_event is not None and cancel_event.is_set():
+            result["status"] = "cancelled"
         if result["errors"] and result["status"] == "ok":
             result["status"] = "partial"
         with ah._conn() as conn:
