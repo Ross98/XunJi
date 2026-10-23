@@ -143,7 +143,7 @@
     </div>
     <div class="stats-half">
         <div class="stats-half-title">体脂率统计 (%)</div>
-        {% if latest.get('bodyfat',{}).get('value') %}
+        {% if latest.get('bodyfat',{}).get('value') is not none %}
         <div class="stats-row"><span class="label">最新</span><span class="value">{{ latest.bodyfat.value }} <span style="font-size:13px;color:var(--text-muted);">{{ latest.bodyfat.date }}</span></span></div>
         {% endif %}
         {% if period_bf_change is not none %}

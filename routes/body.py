@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import date, timedelta
 from threading import Lock
 
@@ -134,6 +136,15 @@ async def body_page(
         logger.exception("Body API unavailable; rendering Apple Health data only")
         body_data = {"res": {"records": []}}
         body_warning = "训记暂时无法读取，当前仅展示 Apple Health 记录。稍后刷新重试。"
+    return await run_joined_threadpool(
+        _render_body_page, request=request, body_data=body_data, start=start,
+        today=today, days=days, range_selected=range, body_warning=body_warning,
+    )
+
+
+def _render_body_page(request: Request, body_data: dict, start: str, today: str,
+                      days: int | None, range_selected: str, body_warning: str | None):
+    """Join local health/config/cache reads and rendering before request shutdown."""
     if isinstance(body_data, dict) and body_data.get("_cache_fallback"):
         body_warning = "训记暂时无法读取，当前展示本机缓存与 Apple Health 记录，可能缺少近期数据。稍后刷新重试。"
     elif not DataService._is_valid_body_response(body_data):
@@ -220,7 +231,7 @@ async def body_page(
         changes=changes,
         bmi=bmi,
         range_days=days,
-        range_selected=range,
+        range_selected=range_selected,
         latest_weight_change=latest_weight_change,
         latest_bf_change=latest_bf_change,
         latest_measurement_changes=latest_measurement_changes,
