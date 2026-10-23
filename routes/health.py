@@ -5,6 +5,7 @@ from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 import threading
 import logging
+import math
 
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
@@ -184,6 +185,27 @@ async def _run_import_job():
         )
 
 
+def _health_number(value, scale=1):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        scaled = value * scale
+        return scaled if math.isfinite(scaled) else None
+    except OverflowError:
+        return None
+
+
+def _health_metric_records(metric, start, end):
+    # Keep missing sample positions and dates; only sanitize the display copy.
+    return [dict(row, value=_health_number(row.get("value")))
+            for row in ah.query_records_desc(metric, start, end, limit=30)]
+
+
+def _format_health_value(records, precision=0, scale=1):
+    value = _health_number(records[0].get("value"), scale) if records else None
+    return f"{value:.{precision}f}" if value is not None else "--"
+
+
 def _build_body_table(body_mass: list[dict], body_fat: list[dict], max_rows: int = 5) -> list[dict]:
     """预生成身体数据表格行，避免 Jinja2 中 O(n²) 的 selectattr。"""
     by_date: dict[str, dict] = {}
@@ -191,15 +213,16 @@ def _build_body_table(body_mass: list[dict], body_fat: list[dict], max_rows: int
         d = r["start_date"][:10]
         if d not in by_date:
             by_date[d] = {"date": d}
-        if "weight" not in by_date[d] and r.get("value") is not None:
-            by_date[d]["weight"] = round(r["value"], 2)
+        weight = _health_number(r.get("value"))
+        if "weight" not in by_date[d] and weight is not None:
+            by_date[d]["weight"] = round(weight, 2)
     for r in body_fat:
         d = r["start_date"][:10]
         if d not in by_date:
             by_date[d] = {"date": d}
-        bf = r["value"]
+        bf = _health_number(r.get("value"), 100)
         if "bodyfat" not in by_date[d] and bf is not None:
-            by_date[d]["bodyfat"] = round(bf * 100, 1)  # 0.19 → 19%
+            by_date[d]["bodyfat"] = round(bf, 1)  # 0.19 → 19%
 
     rows = sorted(by_date.values(), key=lambda x: x["date"], reverse=True)
     return rows[:max_rows]
@@ -221,19 +244,19 @@ def _render_health_page(request: Request):
     end = date.today().isoformat()
     start = (date.today() - timedelta(days=90)).isoformat()
 
-    hrv = ah.query_records_desc("HKQuantityTypeIdentifierHeartRateVariabilitySDNN", start, end, limit=30)
-    resting_hr = ah.query_records_desc("HKQuantityTypeIdentifierRestingHeartRate", start, end, limit=30)
-    vo2 = ah.query_records_desc("HKQuantityTypeIdentifierVO2Max", start, end, limit=30)
-    respiratory = ah.query_records_desc("HKQuantityTypeIdentifierRespiratoryRate", start, end, limit=30)
-    oxygen = ah.query_records_desc("HKQuantityTypeIdentifierOxygenSaturation", start, end, limit=30)
-    wrist_temperature = ah.query_records_desc("HKQuantityTypeIdentifierAppleSleepingWristTemperature", start, end, limit=30)
-    heart_recovery = ah.query_records_desc("HKQuantityTypeIdentifierHeartRateRecoveryOneMinute", start, end, limit=30)
-    walking_speed = ah.query_records_desc("HKQuantityTypeIdentifierWalkingSpeed", start, end, limit=30)
-    walking_step_length = ah.query_records_desc("HKQuantityTypeIdentifierWalkingStepLength", start, end, limit=30)
-    walking_asymmetry = ah.query_records_desc("HKQuantityTypeIdentifierWalkingAsymmetryPercentage", start, end, limit=30)
-    walking_steadiness = ah.query_records_desc("HKQuantityTypeIdentifierAppleWalkingSteadiness", start, end, limit=30)
-    body_mass = ah.query_records_desc("HKQuantityTypeIdentifierBodyMass", start, end, limit=30)
-    body_fat = ah.query_records_desc("HKQuantityTypeIdentifierBodyFatPercentage", start, end, limit=30)
+    hrv = _health_metric_records("HKQuantityTypeIdentifierHeartRateVariabilitySDNN", start, end)
+    resting_hr = _health_metric_records("HKQuantityTypeIdentifierRestingHeartRate", start, end)
+    vo2 = _health_metric_records("HKQuantityTypeIdentifierVO2Max", start, end)
+    respiratory = _health_metric_records("HKQuantityTypeIdentifierRespiratoryRate", start, end)
+    oxygen = _health_metric_records("HKQuantityTypeIdentifierOxygenSaturation", start, end)
+    wrist_temperature = _health_metric_records("HKQuantityTypeIdentifierAppleSleepingWristTemperature", start, end)
+    heart_recovery = _health_metric_records("HKQuantityTypeIdentifierHeartRateRecoveryOneMinute", start, end)
+    walking_speed = _health_metric_records("HKQuantityTypeIdentifierWalkingSpeed", start, end)
+    walking_step_length = _health_metric_records("HKQuantityTypeIdentifierWalkingStepLength", start, end)
+    walking_asymmetry = _health_metric_records("HKQuantityTypeIdentifierWalkingAsymmetryPercentage", start, end)
+    walking_steadiness = _health_metric_records("HKQuantityTypeIdentifierAppleWalkingSteadiness", start, end)
+    body_mass = _health_metric_records("HKQuantityTypeIdentifierBodyMass", start, end)
+    body_fat = _health_metric_records("HKQuantityTypeIdentifierBodyFatPercentage", start, end)
     workouts = ah.query_workouts(start=start, end=end, limit=5)
 
     body_rows = _build_body_table(body_mass, body_fat, max_rows=5)
@@ -284,6 +307,7 @@ def _render_health_page(request: Request):
         sleep_metrics=sleep_metrics,
         sleep_count=sleep_count,
         health_label=health_label,
+        health_value=_format_health_value,
         workout_label=workout_label,
         export_path=str(ah.EXPORT_XML),
         export_exists=ah.EXPORT_XML.exists(),

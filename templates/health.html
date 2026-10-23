@@ -45,23 +45,23 @@
 
 <section class="tab-panel active" id="health-overview">
     <div class="health-metric-grid">
-        <div class="card health-metric-card"><span>HRV</span><strong>{{ "%.0f"|format(hrv[0].value) if hrv else '--' }}</strong><em>ms</em><small>{{ hrv[0].start_date[:10] if hrv else '暂无日期' }}</small><canvas id="healthHrvChart"></canvas></div>
-        <div class="card health-metric-card"><span>静息心率</span><strong>{{ "%.0f"|format(resting_hr[0].value) if resting_hr else '--' }}</strong><em>bpm</em><small>{{ resting_hr[0].start_date[:10] if resting_hr else '暂无日期' }}</small><canvas id="healthRhrChart"></canvas></div>
-        <div class="card health-metric-card"><span>VO₂ Max</span><strong>{{ "%.1f"|format(vo2[0].value) if vo2 else '--' }}</strong><em>ml/kg/min</em><small>{{ vo2[0].start_date[:10] if vo2 else '暂无日期' }}</small><canvas id="healthVo2Chart"></canvas></div>
-        <div class="card health-metric-card"><span>血氧饱和度</span><strong>{{ "%.1f"|format(oxygen[0].value * 100) if oxygen else '--' }}</strong><em>%</em><small>{{ oxygen[0].start_date[:10] if oxygen else '暂无日期' }}</small></div>
-        <div class="card health-metric-card"><span>呼吸频率</span><strong>{{ "%.1f"|format(respiratory[0].value) if respiratory else '--' }}</strong><em>次/分</em><small>{{ respiratory[0].start_date[:10] if respiratory else '暂无日期' }}</small></div>
-        <div class="card health-metric-card"><span>一分钟心率恢复</span><strong>{{ "%.0f"|format(heart_recovery[0].value) if heart_recovery else '--' }}</strong><em>bpm</em><small>{{ heart_recovery[0].start_date[:10] if heart_recovery else '暂无日期' }}</small></div>
-        <div class="card health-metric-card"><span>睡眠腕温</span><strong>{{ "%.2f"|format(wrist_temperature[0].value) if wrist_temperature else '--' }}</strong><em>°C</em><small>{{ wrist_temperature[0].start_date[:10] if wrist_temperature else '暂无日期' }}</small></div>
+        <div class="card health-metric-card"><span>HRV</span><strong>{{ health_value(hrv, 0, 1) }}</strong><em>ms</em><small>{{ hrv[0].start_date[:10] if hrv else '暂无日期' }}</small><canvas id="healthHrvChart"></canvas></div>
+        <div class="card health-metric-card"><span>静息心率</span><strong>{{ health_value(resting_hr, 0, 1) }}</strong><em>bpm</em><small>{{ resting_hr[0].start_date[:10] if resting_hr else '暂无日期' }}</small><canvas id="healthRhrChart"></canvas></div>
+        <div class="card health-metric-card"><span>VO₂ Max</span><strong>{{ health_value(vo2, 1, 1) }}</strong><em>ml/kg/min</em><small>{{ vo2[0].start_date[:10] if vo2 else '暂无日期' }}</small><canvas id="healthVo2Chart"></canvas></div>
+        <div class="card health-metric-card"><span>血氧饱和度</span><strong>{{ health_value(oxygen, 1, 100) }}</strong><em>%</em><small>{{ oxygen[0].start_date[:10] if oxygen else '暂无日期' }}</small></div>
+        <div class="card health-metric-card"><span>呼吸频率</span><strong>{{ health_value(respiratory, 1, 1) }}</strong><em>次/分</em><small>{{ respiratory[0].start_date[:10] if respiratory else '暂无日期' }}</small></div>
+        <div class="card health-metric-card"><span>一分钟心率恢复</span><strong>{{ health_value(heart_recovery, 0, 1) }}</strong><em>bpm</em><small>{{ heart_recovery[0].start_date[:10] if heart_recovery else '暂无日期' }}</small></div>
+        <div class="card health-metric-card"><span>睡眠腕温</span><strong>{{ health_value(wrist_temperature, 2, 1) }}</strong><em>°C</em><small>{{ wrist_temperature[0].start_date[:10] if wrist_temperature else '暂无日期' }}</small></div>
     </div>
 
     <div class="card">
         <div class="card-title">步态与稳定性</div>
-        <p class="card-description">展示 Apple Health 最近一条记录；“—”表示这次导出中没有该指标。</p>
+        <p class="card-description">展示 Apple Health 最近一条记录；“--”表示这条记录缺少有效数值或尚无该指标。</p>
         <div class="health-gait-grid">
-            <div><span>步行速度</span><strong>{{ "%.2f"|format(walking_speed[0].value) if walking_speed else '--' }}</strong><em>{{ walking_speed[0].unit if walking_speed else '' }}</em><small>{{ walking_speed[0].start_date[:10] if walking_speed else '暂无日期' }}</small></div>
-            <div><span>步幅</span><strong>{{ "%.1f"|format(walking_step_length[0].value) if walking_step_length else '--' }}</strong><em>cm</em><small>{{ walking_step_length[0].start_date[:10] if walking_step_length else '暂无日期' }}</small></div>
-            <div><span>步态不对称</span><strong>{{ "%.1f"|format(walking_asymmetry[0].value * 100) if walking_asymmetry else '--' }}</strong><em>%</em><small>{{ walking_asymmetry[0].start_date[:10] if walking_asymmetry else '暂无日期' }}</small></div>
-            <div><span>步行稳定性</span><strong>{{ "%.1f"|format(walking_steadiness[0].value * 100) if walking_steadiness else '--' }}</strong><em>%</em><small>{{ walking_steadiness[0].start_date[:10] if walking_steadiness else '暂无日期' }}</small></div>
+            <div><span>步行速度</span><strong>{{ health_value(walking_speed, 2, 1) }}</strong><em>{{ walking_speed[0].unit if walking_speed else '' }}</em><small>{{ walking_speed[0].start_date[:10] if walking_speed else '暂无日期' }}</small></div>
+            <div><span>步幅</span><strong>{{ health_value(walking_step_length, 1, 1) }}</strong><em>cm</em><small>{{ walking_step_length[0].start_date[:10] if walking_step_length else '暂无日期' }}</small></div>
+            <div><span>步态不对称</span><strong>{{ health_value(walking_asymmetry, 1, 100) }}</strong><em>%</em><small>{{ walking_asymmetry[0].start_date[:10] if walking_asymmetry else '暂无日期' }}</small></div>
+            <div><span>步行稳定性</span><strong>{{ health_value(walking_steadiness, 1, 100) }}</strong><em>%</em><small>{{ walking_steadiness[0].start_date[:10] if walking_steadiness else '暂无日期' }}</small></div>
         </div>
     </div>
 
