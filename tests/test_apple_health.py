@@ -286,6 +286,7 @@ def test_import_all_full_reconcile_imports_history_before_overlap(
     isolated_health_db, tmp_path, monkeypatch
 ):
     ah = isolated_health_db
+    ah._finish_xml_import()  # Simulate a known completed previous XML scan.
     with ah._conn() as conn:
         conn.execute(
             """INSERT INTO health_records
@@ -338,7 +339,16 @@ def test_import_all_stops_cooperatively_and_flushes_current_batch(
     export_xml.write_text(f"<HealthData>{records}</HealthData>", encoding="utf-8")
     monkeypatch.setattr(ah, "EXPORT_XML", export_xml)
     cancel_event = threading.Event()
-    cancel_event.set()
+    original_parse = ah._parse_record
+    parsed = 0
+    def cancel_after_999(elem):
+        nonlocal parsed
+        result = original_parse(elem)
+        parsed += 1
+        if parsed == 999:
+            cancel_event.set()
+        return result
+    monkeypatch.setattr(ah, '_parse_record', cancel_after_999)
 
     with pytest.raises(ah.ImportCancelled):
         ah.import_all(batch_size=5000, cancel_event=cancel_event)
@@ -420,6 +430,7 @@ def test_streaming_xml_releases_completed_root_children(
     xml.write_text('<HealthData>' + ''.join(nodes) + '</HealthData>')
     monkeypatch.setattr(ah, 'EXPORT_XML', xml)
     if skipped:
+        ah._finish_xml_import()  # Exercise the trusted incremental skip path.
         common = dict(start_date='2026-10-01 08:00:00 +0800', end_date='2026-10-01 08:00:00 +0800', source_name='synthetic')
         ah._bulk_insert([dict(common, type='steps', value=1, unit='count')], [dict(common,
             workout_activity_type='Walking', duration=1, duration_unit='min',

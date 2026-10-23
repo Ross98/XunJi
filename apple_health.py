@@ -80,10 +80,32 @@ def _init_db():
             CREATE INDEX IF NOT EXISTS idx_records_date ON health_records(start_date);
             CREATE INDEX IF NOT EXISTS idx_workouts_type ON health_workouts(workout_activity_type);
             CREATE INDEX IF NOT EXISTS idx_sleep_type ON health_sleep(type);
+            CREATE TABLE IF NOT EXISTS xml_import_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                incomplete INTEGER NOT NULL CHECK (incomplete IN (0, 1))
+            );
         """)
 
 
 # ---------- 导入 ----------
+
+
+def _check_import_cancelled(cancel_event):
+    if cancel_event is not None and cancel_event.is_set():
+        raise ImportCancelled("Apple Health import cancelled")
+
+
+def _begin_xml_import():
+    """Only a known completed XML run makes date watermarks safe to reuse."""
+    with _conn() as conn:
+        row = conn.execute("SELECT incomplete FROM xml_import_state WHERE id = 1").fetchone()
+        conn.execute("INSERT OR REPLACE INTO xml_import_state VALUES (1, 1)")
+    return row is not None and row["incomplete"] == 0
+
+
+def _finish_xml_import():
+    with _conn() as conn:
+        conn.execute("INSERT OR REPLACE INTO xml_import_state VALUES (1, 0)")
 
 
 def _load_import_watermarks():
@@ -110,9 +132,9 @@ def _is_before_import_window(start_date: str, watermark: Optional[str]) -> bool:
         return False
     try:
         latest = datetime.strptime(watermark[:19], "%Y-%m-%d %H:%M:%S")
-    except (TypeError, ValueError):
+        cutoff = latest - timedelta(days=_IMPORT_OVERLAP_DAYS)
+    except (TypeError, ValueError, OverflowError):
         return False
-    cutoff = latest - timedelta(days=_IMPORT_OVERLAP_DAYS)
     return start_date[:19] < cutoff.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -124,36 +146,54 @@ def import_all(
     full_reconcile=False,
 ):
     """流式导入导出.xml；默认增量导入，可完整核对全部历史。"""
+    _check_import_cancelled(cancel_event)
     _init_db()
+    _check_import_cancelled(cancel_event)
     xml_path = str(EXPORT_XML)
     if not Path(xml_path).exists():
         raise FileNotFoundError(f"未找到 Apple Health 导出文件: {xml_path}")
+    _check_import_cancelled(cancel_event)
 
     if full_reconcile:
         record_watermarks, workout_watermarks, sleep_watermarks = {}, {}, {}
     else:
         record_watermarks, workout_watermarks, sleep_watermarks = _load_import_watermarks()
+    _check_import_cancelled(cancel_event)
 
     total = 0
     processed = 0
     record_batch = []
     workout_batch = []
     sleep_batch = []
-    parsed = 0
+
+    def flush_pending():
+        nonlocal total
+        if record_batch or workout_batch or sleep_batch:
+            total += _bulk_insert(record_batch, workout_batch, sleep_batch)
+            record_batch.clear()
+            workout_batch.clear()
+            sleep_batch.clear()
+
+    def cancel_if_requested():
+        if cancel_event is not None and cancel_event.is_set():
+            flush_pending()
+            _check_import_cancelled(cancel_event)
 
     with open(xml_path, "rb") as xml_stream:
         events = ET.iterparse(xml_stream, events=("start", "end"))
         _, root = next(events)
+        _check_import_cancelled(cancel_event)
+        if root.tag != "HealthData":
+            raise ValueError("不是 Apple Health 导出文件")
+        if not _begin_xml_import():
+            record_watermarks, workout_watermarks, sleep_watermarks = {}, {}, {}
+        _check_import_cancelled(cancel_event)
         # elem.clear() alone leaves an empty child attached to HealthData.
         # Root attributes are unused; release its references as elements finish.
         for event, elem in events:
             if event != "end":
                 continue
-            parsed += 1
-            if cancel_event is not None and parsed % 1000 == 0 and cancel_event.is_set():
-                if record_batch or workout_batch or sleep_batch:
-                    _bulk_insert(record_batch, workout_batch, sleep_batch)
-                raise ImportCancelled("Apple Health import cancelled")
+            cancel_if_requested()
             if elem.tag == "Record":
                 t = elem.get("type", "")
                 sd = elem.get("startDate", "")
@@ -191,24 +231,30 @@ def import_all(
             root.clear()
 
             if len(record_batch) >= batch_size or len(workout_batch) >= batch_size or len(sleep_batch) >= batch_size:
-                total += _bulk_insert(record_batch, workout_batch, sleep_batch)
-                record_batch.clear()
-                workout_batch.clear()
-                sleep_batch.clear()
+                flush_pending()
                 if progress_callback:
                     progress_callback(processed)
 
-    if record_batch or workout_batch or sleep_batch:
-        total += _bulk_insert(record_batch, workout_batch, sleep_batch)
+    cancel_if_requested()
+    flush_pending()
     if progress_callback:
         progress_callback(processed)
+    _check_import_cancelled(cancel_event)
 
     # 记录导入时间到 xunji_cache.sqlite
     try:
         if cache is None:
             from cache import Cache
             cache = Cache()
-        cache.set("_health_import_time", {"time": datetime.now(timezone.utc).isoformat()})
+    except ImportCancelled:
+        raise
+    except Exception:
+        logger.exception("Failed to open Apple Health import timestamp cache")
+    _check_import_cancelled(cancel_event)
+    _finish_xml_import()
+    try:
+        if cache is not None:
+            cache.set("_health_import_time", {"time": datetime.now(timezone.utc).isoformat()})
     except Exception:
         logger.exception("Failed to record Apple Health import timestamp")
     return total
