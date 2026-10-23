@@ -287,3 +287,45 @@ def test_identical_survivor_ownership_can_transfer_until_last_deletion(isolated_
     hs.sync(folder)
     assert isolated_health_db.query_records() == []
     assert hs.status()['samples'] == 0
+
+
+@pytest.mark.parametrize('failure', ['huge_number', 'sqlite_integer', 'timezone_overflow', 'nested_json'])
+def test_overflowing_or_deep_batch_rolls_back_and_does_not_starve_later_files(
+    isolated_health_db, tmp_cache, tmp_path, failure
+):
+    import hozz_sync as hs
+    folder = tmp_path / 'batches'
+    first = sample('rolled-back')
+    malformed = sample('bad', startDate='2026-09-30T01:00:00Z', endDate='2026-09-30T01:01:00Z')
+    if failure == 'huge_number':
+        malformed['quantity']['value'] = 10 ** 400
+    elif failure == 'sqlite_integer':
+        malformed['quantity']['value'] = 2 ** 63
+    elif failure == 'timezone_overflow':
+        malformed['startDate'] = '9999-12-31T23:00:00Z'
+    bad_path = batch(folder, 'a.ndjson', [first, malformed])
+    if failure == 'nested_json':
+        bad_path.write_text(json.dumps(first) + '\n' + '[' * 1500 + '0' + ']' * 1500 + '\n')
+    batch(folder, 'b.ndjson', [sample('survivor')])
+
+    result = hs.sync(folder, cache=tmp_cache)
+    assert result['status'] == 'partial'
+    assert (result['files'], result['new_samples'], result['inserted']) == (1, 1, 1)
+    assert len(result['errors']) == 1
+    assert result['errors'][0].startswith('a.ndjson:')
+    with isolated_health_db._conn() as conn:
+        assert [row[0] for row in conn.execute('SELECT id FROM hozz_samples')] == ['survivor']
+        assert conn.execute('SELECT count(*) FROM hozz_files WHERE path=?', (str(bad_path),)).fetchone()[0] == 0
+    marker = tmp_cache.get('_health_import_time')
+    assert marker
+    repeated = hs.sync(folder, cache=tmp_cache)
+    assert repeated['status'] == 'partial'
+    assert (repeated['files'], repeated['new_samples']) == (0, 0)
+    assert tmp_cache.get('_health_import_time') == marker
+
+    # A repaired batch remains retryable; its prior partial writes never escaped.
+    batch(folder, 'a.ndjson', [first, sample('repaired', startDate='2026-09-30T02:00:00Z')])
+    repaired = hs.sync(folder, cache=tmp_cache)
+    assert repaired['status'] == 'ok'
+    assert repaired['new_samples'] == 2
+    assert hs.status()['samples'] == 3

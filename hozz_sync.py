@@ -269,7 +269,8 @@ def sync(folder=None, cache=None, cancel_event=None):
             except ah.ImportCancelled:
                 result["status"] = "cancelled"
                 break
-            except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
+            except (OSError, ValueError, KeyError, TypeError, OverflowError,
+                    RecursionError, sqlite3.Error) as exc:
                 result["errors"].append(f"{path.name}: {exc}")
         if result["errors"] and result["status"] == "ok":
             result["status"] = "partial"
