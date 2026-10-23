@@ -166,7 +166,9 @@ docker run -p 127.0.0.1:8000:8000 --env-file .env xunji
 ## 数据
 
 - **xunji_cache.sqlite** — 训记 API 响应缓存（训练空结果会按策略重新验证）
-- **apple_health_cache.sqlite** — Apple Health 数据缓存（一次性导入）
+- **apple_health_cache.sqlite** — Apple Health 数据缓存（XML 增量导入与 Hozz 批次投影）
+
+可用 `XUNJI_CACHE_PATH` 指定训记缓存位置；应用和独立 XML 导入共用此设置，空值使用默认文件。健康更新时间检查读取缓存标记，源数据日期仍以已接收记录为准。
 
 ## 运行范围
 

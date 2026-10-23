@@ -247,7 +247,7 @@ def _render_health_page(request: Request):
     env = get_jinja_env()
     tmpl = env.get_template("health.html")
     export = _xml_export_info()
-    stats = ah.get_import_count()
+    stats = ah.get_import_count(cache=get_cache())
     imported = any(stats[key] > 0 for key in ("total_records", "total_workouts", "total_sleep"))
 
     end = date.today().isoformat()

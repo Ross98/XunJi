@@ -9,6 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse
+from fastapi.concurrency import run_in_threadpool
 from app_state import get_cache, get_jinja_env, get_data_service
 from data_service import (
     get_cached_body,
@@ -186,8 +187,7 @@ async def ah_import_check():
     """Check Apple Health import freshness."""
     try:
         import apple_health as _ah
-        counts = _ah.get_import_count()
-        t = counts.get("health_import_time")
+        t = await run_in_threadpool(lambda: _ah.get_import_time(get_cache()))
         return {"import_time": t, "ok": True}
     except Exception as e:
         return {"import_time": None, "ok": False, "error": str(e)}

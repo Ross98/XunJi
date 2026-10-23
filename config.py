@@ -6,6 +6,18 @@ from dotenv import load_dotenv
 
 
 PROJECT_ENV_PATH = Path(__file__).with_name(".env")
+DEFAULT_CACHE_PATH = "xunji_cache.sqlite"
+
+
+def _cache_path_setting() -> str:
+    value = os.environ.get("XUNJI_CACHE_PATH")
+    return value if value and value.strip() else DEFAULT_CACHE_PATH
+
+
+def load_cache_path() -> str:
+    """Standalone cache users share the app's path without requiring API keys."""
+    load_dotenv(PROJECT_ENV_PATH, override=False)
+    return _cache_path_setting()
 
 
 class ConfigurationError(RuntimeError):
@@ -29,7 +41,7 @@ class XunjiConfig:
     body_base_url: str = "https://api.xunjiapp.cn"
 
     # App
-    cache_path: str = "xunji_cache.sqlite"
+    cache_path: str = DEFAULT_CACHE_PATH
 
     @classmethod
     def from_env(cls) -> "XunjiConfig":
@@ -46,5 +58,5 @@ class XunjiConfig:
             body_api_key=os.environ["XUNJI_BODY_API_KEY"],
             diet_api_key=os.environ.get("XUNJI_FOOD_API_KEY", ""),
             diet_search_api_key=os.environ.get("XUNJI_FOOD_SEARCH_API_KEY", ""),
-            cache_path=os.environ.get("XUNJI_CACHE_PATH", "xunji_cache.sqlite"),
+            cache_path=_cache_path_setting(),
         )

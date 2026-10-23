@@ -373,8 +373,21 @@ def get_workout_types() -> list[str]:
         return [r["workout_activity_type"] for r in rows]
 
 
-def get_import_count() -> dict:
-    """返回各类型数据计数。"""
+def get_import_time(cache=None):
+    """Read a validated marker only from the supplied cache; never initialize storage."""
+    marker = cache.get("_health_import_time") if cache is not None else None
+    value = marker.get("time") if isinstance(marker, dict) else None
+    if not isinstance(value, str):
+        return None
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return value
+
+
+def get_import_count(*, cache=None) -> dict:
+    """Read health totals; callers may supply the active cache for the import marker."""
     with _conn() as conn:
         records = conn.execute(
             "SELECT type, COUNT(*) as cnt FROM health_records GROUP BY type ORDER BY cnt DESC"
@@ -385,12 +398,11 @@ def get_import_count() -> dict:
         sleep_counts = conn.execute(
             "SELECT type, COUNT(*) as cnt FROM health_sleep GROUP BY type ORDER BY cnt DESC"
         ).fetchall()
+    try:
+        import_time = get_import_time(cache)
+    except (OSError, sqlite3.Error):
+        logger.warning("Unable to read health import marker", exc_info=True)
         import_time = None
-        try:
-            from cache import Cache
-            import_time = Cache().get("_health_import_time")
-        except Exception:
-            pass
     return {
         "records": [dict(r) for r in records],
         "workouts": [dict(r) for r in workouts],
@@ -398,7 +410,7 @@ def get_import_count() -> dict:
         "total_records": sum(r["cnt"] for r in records),
         "total_workouts": sum(r["cnt"] for r in workouts),
         "total_sleep": sum(r["cnt"] for r in sleep_counts),
-        "health_import_time": import_time["time"] if import_time else None,
+        "health_import_time": import_time,
     }
 
 

@@ -6,7 +6,10 @@ from typing import Optional
 
 
 class Cache:
-    def __init__(self, db_path: str = "xunji_cache.sqlite"):
+    def __init__(self, db_path: Optional[str] = None):
+        if db_path is None:
+            from config import load_cache_path
+            db_path = load_cache_path()
         self._db_path = db_path
         self._init_db()
 

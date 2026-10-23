@@ -70,10 +70,10 @@ def test_health_overview_database_reads_run_outside_event_loop(
     original = isolated_health_db.get_import_count
     calls = []
 
-    def read_counts():
+    def read_counts(**kwargs):
         assert threading.get_ident() != owner_thread, 'health overview blocked the event loop'
         calls.append('counts')
-        return original()
+        return original(**kwargs)
 
     monkeypatch.setattr(isolated_health_db, 'get_import_count', read_counts)
     monkeypatch.setattr(isolated_health_db, 'EXPORT_XML', tmp_path / 'missing.xml')
@@ -104,10 +104,10 @@ def test_slow_health_read_does_not_delay_status_request(
     release = threading.Event()
     original = getattr(isolated_health_db, query)
 
-    def slow_read(*args):
+    def slow_read(*args, **kwargs):
         entered.set()
         assert release.wait(2), 'status request could not run during a slow health read'
-        return original(*args)
+        return original(*args, **kwargs)
 
     monkeypatch.setattr(isolated_health_db, query, slow_read)
     monkeypatch.setattr(isolated_health_db, 'EXPORT_XML', tmp_path / 'missing.xml')
